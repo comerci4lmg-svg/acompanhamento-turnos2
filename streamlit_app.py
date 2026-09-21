@@ -1,20 +1,24 @@
 from __future__ import annotations
 
+import calendar
 from datetime import date, datetime
 import re
 import unicodedata
+from zoneinfo import ZoneInfo
 
+import holidays
 import pandas as pd
 import requests
 import streamlit as st
 
 
-st.set_page_config(page_title="Acompanhamento de Turnos GO", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Acompanhamento de Turnos GO", page_icon="👷‍♂️", layout="wide")
 GRUPOS = ["GOOL", "GOOC", "GOOK", "GOOH"]
 MESES = [
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ]
+FUSO_GOIAS = ZoneInfo("America/Sao_Paulo")
 
 
 def normalizar_nome(valor):
@@ -73,6 +77,59 @@ def preparar_dados(brutos):
     return dados.sort_values(["INICIO_TURNO", "PREFIXO"], na_position="last")
 
 
+def montar_mapa_mensal(dados, ano, mes, grupos, equipes_selecionadas):
+    quantidade_dias = calendar.monthrange(ano, mes)[1]
+    dias = list(range(1, quantidade_dias + 1))
+    hoje = datetime.now(FUSO_GOIAS).date()
+    feriados_go = holidays.Brazil(years=[ano], subdiv="GO")
+
+    universo = dados[dados["GRUPO"].isin(grupos)].copy()
+    if equipes_selecionadas:
+        universo = universo[universo["PREFIXO"].isin(equipes_selecionadas)]
+    equipes_mapa = sorted(universo["PREFIXO"].dropna().unique())
+
+    datas = pd.to_datetime(universo["DATA"], errors="coerce")
+    aberturas_mes = universo[datas.dt.year.eq(ano) & datas.dt.month.eq(mes)].copy()
+    aberturas_mes["DIA"] = pd.to_datetime(aberturas_mes["DATA"]).dt.day
+    presencas = set(zip(aberturas_mes["PREFIXO"], aberturas_mes["DIA"]))
+
+    linhas = []
+    for equipe in equipes_mapa:
+        linha = {"EQUIPE": equipe}
+        total = 0
+        for dia in dias:
+            data_celula = date(ano, mes, dia)
+            if (equipe, dia) in presencas:
+                valor = "1"
+                total += 1
+            elif data_celula > hoje:
+                valor = ""
+            elif data_celula in feriados_go:
+                valor = "F"
+            elif data_celula.weekday() == 5:
+                valor = "S"
+            elif data_celula.weekday() == 6:
+                valor = "D"
+            else:
+                valor = "0"
+            linha[dia] = valor
+        linha["TOTAL"] = total
+        linhas.append(linha)
+    return pd.DataFrame(linhas).set_index("EQUIPE") if linhas else pd.DataFrame()
+
+
+def estilo_mapa(valor):
+    estilos = {
+        "1": "background-color: #16a34a; color: white; font-weight: 700;",
+        "0": "background-color: #dc2626; color: white; font-weight: 700;",
+        "S": "background-color: #dbeafe; color: #1e3a8a; font-weight: 700;",
+        "D": "background-color: #e2e8f0; color: #334155; font-weight: 700;",
+        "F": "background-color: #fef3c7; color: #92400e; font-weight: 700;",
+        "": "background-color: #f8fafc; color: #94a3b8;",
+    }
+    return estilos.get(str(valor), "font-weight: 700;")
+
+
 st.title("Acompanhamento de Turnos GO")
 st.caption("Abertura e fechamento reais • dados atualizados pelo bot")
 if st.sidebar.button("Atualizar dados", type="primary", use_container_width=True):
@@ -93,7 +150,7 @@ except Exception as erro:
 
 if atualizado_em:
     try:
-        atualizado = datetime.fromisoformat(atualizado_em).astimezone()
+        atualizado = datetime.fromisoformat(atualizado_em).astimezone(FUSO_GOIAS)
         st.caption(f"Última carga do bot: {atualizado:%d/%m/%Y %H:%M:%S}")
     except ValueError:
         st.caption("Última carga do bot: " + atualizado_em)
@@ -132,7 +189,7 @@ colunas = [
     "SITUACAO", "DURACAO_HORAS", "DIFERENCA_FECHAMENTO_MIN",
     "PARTICIPA_ESCALA", "OBSERVACAO",
 ]
-aba_turnos, aba_resumo = st.tabs(["Turnos", "Resumo diário"])
+aba_turnos, aba_mapa, aba_resumo = st.tabs(["Turnos", "Mapa mensal", "Resumo diário"])
 with aba_turnos:
     st.subheader(f"Turnos de {MESES[mes - 1]} de {ano}")
     st.dataframe(
@@ -146,6 +203,30 @@ with aba_turnos:
             "DIFERENCA_FECHAMENTO_MIN": st.column_config.NumberColumn("Diferença fechamento (min)", format="%d"),
         },
     )
+with aba_mapa:
+    st.subheader(f"Presença das equipes — {MESES[mes - 1]} de {ano}")
+    st.caption(
+        "🟩 1 = abriu turno  •  🟥 0 = não abriu em dia útil já transcorrido  •  "
+        "S = sábado  •  D = domingo  •  F = feriado  •  vazio = dia futuro"
+    )
+    mapa = montar_mapa_mensal(dados, ano, mes, grupos, equipes)
+    if mapa.empty:
+        st.info("Nenhuma equipe disponível para os filtros selecionados.")
+    else:
+        colunas_dias = [coluna for coluna in mapa.columns if coluna != "TOTAL"]
+        tabela_estilizada = (
+            mapa.style
+            .map(estilo_mapa, subset=colunas_dias)
+            .set_properties(
+                subset=["TOTAL"],
+                **{"font-weight": "700", "background-color": "#f1f5f9"},
+            )
+        )
+        st.dataframe(
+            tabela_estilizada,
+            use_container_width=True,
+            height=min(800, 70 + len(mapa) * 35),
+        )
 with aba_resumo:
     if filtrado.empty:
         st.info("Nenhum turno encontrado para os filtros selecionados.")
