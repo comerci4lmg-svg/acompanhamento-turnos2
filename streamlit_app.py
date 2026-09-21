@@ -26,6 +26,20 @@ def normalizar_nome(valor):
     return re.sub(r"[^A-Z0-9]+", "_", texto.upper()).strip("_")
 
 
+def converter_data_hora(valores):
+    """Aceita o ISO enviado pelo bot e datas brasileiras digitadas na planilha."""
+    texto = valores.astype("string").str.strip()
+    resultado = pd.Series(pd.NaT, index=valores.index, dtype="datetime64[ns]")
+    formato_iso = texto.str.match(r"^\d{4}-\d{2}-\d{2}", na=False)
+    resultado.loc[formato_iso] = pd.to_datetime(
+        texto.loc[formato_iso], errors="coerce", format="ISO8601"
+    )
+    resultado.loc[~formato_iso] = pd.to_datetime(
+        texto.loc[~formato_iso], errors="coerce", format="mixed", dayfirst=True
+    )
+    return resultado
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def carregar_turnos():
     configuracao = st.secrets["apps_script"]
@@ -53,7 +67,7 @@ def preparar_dados(brutos):
     for coluna in ["INICIO_TURNO", "SAIDA_PREVISTA", "FIM_TURNO"]:
         if coluna not in dados.columns:
             dados[coluna] = pd.NaT
-        dados[coluna] = pd.to_datetime(dados[coluna], errors="coerce", dayfirst=True)
+        dados[coluna] = converter_data_hora(dados[coluna])
 
     dados["PREFIXO"] = dados["PREFIXO"].astype(str).str.strip().str.upper()
     dados["GRUPO"] = dados["PREFIXO"].str[:4]
