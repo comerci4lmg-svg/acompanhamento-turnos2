@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 import calendar
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import re
 import unicodedata
 from zoneinfo import ZoneInfo
 
-import holidays
 import pandas as pd
 import requests
 import streamlit as st
 
 
-st.set_page_config(page_title="Acompanhamento de Turnos GO", page_icon="👷‍♂️", layout="wide")
+st.set_page_config(page_title="Acompanhamento de Turnos GO", page_icon="📊", layout="wide")
 GRUPOS = ["GOOL", "GOOC", "GOOK", "GOOH"]
 MESES = [
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -77,11 +76,47 @@ def preparar_dados(brutos):
     return dados.sort_values(["INICIO_TURNO", "PREFIXO"], na_position="last")
 
 
+def domingo_de_pascoa(ano):
+    """Calcula a Páscoa pelo algoritmo gregoriano de Meeus/Jones/Butcher."""
+    a = ano % 19
+    b = ano // 100
+    c = ano % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    mes = (h + l - 7 * m + 114) // 31
+    dia = ((h + l - 7 * m + 114) % 31) + 1
+    return date(ano, mes, dia)
+
+
+def feriados_brasil(ano):
+    pascoa = domingo_de_pascoa(ano)
+    return {
+        date(ano, 1, 1),   # Confraternização Universal
+        pascoa - timedelta(days=2),  # Sexta-feira Santa
+        date(ano, 4, 21),  # Tiradentes
+        date(ano, 5, 1),   # Dia do Trabalho
+        pascoa + timedelta(days=60),  # Corpus Christi
+        date(ano, 9, 7),   # Independência
+        date(ano, 10, 12), # Nossa Senhora Aparecida
+        date(ano, 11, 2),  # Finados
+        date(ano, 11, 15), # Proclamação da República
+        date(ano, 11, 20), # Consciência Negra
+        date(ano, 12, 25), # Natal
+    }
+
+
 def montar_mapa_mensal(dados, ano, mes, grupos, equipes_selecionadas):
     quantidade_dias = calendar.monthrange(ano, mes)[1]
     dias = list(range(1, quantidade_dias + 1))
     hoje = datetime.now(FUSO_GOIAS).date()
-    feriados_go = holidays.Brazil(years=[ano], subdiv="GO")
+    feriados = feriados_brasil(ano)
 
     universo = dados[dados["GRUPO"].isin(grupos)].copy()
     if equipes_selecionadas:
@@ -104,7 +139,7 @@ def montar_mapa_mensal(dados, ano, mes, grupos, equipes_selecionadas):
                 total += 1
             elif data_celula > hoje:
                 valor = ""
-            elif data_celula in feriados_go:
+            elif data_celula in feriados:
                 valor = "F"
             elif data_celula.weekday() == 5:
                 valor = "S"
