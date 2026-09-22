@@ -179,6 +179,67 @@ def estilo_mapa(valor):
     return estilos.get(str(valor), "font-weight: 700;")
 
 
+def montar_tabela_horas(dados, ano, mes, grupos, equipes_selecionadas):
+    quantidade_dias = calendar.monthrange(ano, mes)[1]
+    dias = list(range(1, quantidade_dias + 1))
+    hoje = datetime.now(FUSO_GOIAS).date()
+    feriados = feriados_brasil(ano)
+
+    universo = dados[dados["GRUPO"].isin(grupos)].copy()
+    if equipes_selecionadas:
+        universo = universo[universo["PREFIXO"].isin(equipes_selecionadas)]
+    equipes_tabela = sorted(universo["PREFIXO"].dropna().unique())
+
+    datas = pd.to_datetime(universo["DATA"], errors="coerce")
+    turnos_mes = universo[datas.dt.year.eq(ano) & datas.dt.month.eq(mes)].copy()
+    turnos_mes["DIA"] = pd.to_datetime(turnos_mes["DATA"]).dt.day
+
+    linhas = []
+    for equipe in equipes_tabela:
+        linha = {"EQUIPE": equipe}
+        total_horas = 0.0
+        turnos_equipe = turnos_mes[turnos_mes["PREFIXO"].eq(equipe)]
+        for dia in dias:
+            data_celula = date(ano, mes, dia)
+            turnos_dia = turnos_equipe[turnos_equipe["DIA"].eq(dia)]
+            if not turnos_dia.empty:
+                if turnos_dia["FIM_TURNO"].isna().any():
+                    valor = "EM CURSO"
+                else:
+                    horas = float(turnos_dia["DURACAO_HORAS"].fillna(0).sum())
+                    valor = round(horas, 1)
+                    total_horas += horas
+            elif data_celula > hoje:
+                valor = ""
+            elif data_celula in feriados:
+                valor = "F"
+            elif data_celula.weekday() == 5:
+                valor = "S"
+            elif data_celula.weekday() == 6:
+                valor = "D"
+            else:
+                valor = 0.0
+            linha[dia] = valor
+        linha["TOTAL (h)"] = round(total_horas, 1)
+        linhas.append(linha)
+    return pd.DataFrame(linhas).set_index("EQUIPE") if linhas else pd.DataFrame()
+
+
+def estilo_horas(valor):
+    if isinstance(valor, (int, float)) and not pd.isna(valor):
+        if float(valor) >= 8:
+            return "background-color: #16a34a; color: white; font-weight: 700;"
+        return "background-color: #dc2626; color: white; font-weight: 700;"
+    estilos = {
+        "EM CURSO": "background-color: #facc15; color: #713f12; font-weight: 700;",
+        "S": "background-color: #dbeafe; color: #1e3a8a; font-weight: 700;",
+        "D": "background-color: #e2e8f0; color: #334155; font-weight: 700;",
+        "F": "background-color: #fef3c7; color: #92400e; font-weight: 700;",
+        "": "background-color: #f8fafc; color: #94a3b8;",
+    }
+    return estilos.get(str(valor), "")
+
+
 st.title("Acompanhamento de Turnos GO")
 st.caption("Abertura e fechamento reais • dados atualizados pelo bot")
 if st.sidebar.button("Atualizar dados", type="primary", use_container_width=True):
@@ -238,7 +299,9 @@ colunas = [
     "SITUACAO", "DURACAO_HORAS", "DIFERENCA_FECHAMENTO_MIN",
     "PARTICIPA_ESCALA", "OBSERVACAO",
 ]
-aba_turnos, aba_mapa, aba_resumo = st.tabs(["Turnos", "Mapa mensal", "Resumo diário"])
+aba_turnos, aba_mapa, aba_horas, aba_resumo = st.tabs(
+    ["Turnos", "Mapa mensal", "Horas trabalhadas", "Resumo diário"]
+)
 with aba_turnos:
     st.subheader(f"Turnos de {MESES[mes - 1]} de {ano}")
     st.dataframe(
@@ -275,6 +338,31 @@ with aba_mapa:
             tabela_estilizada,
             use_container_width=True,
             height=min(800, 70 + len(mapa) * 35),
+        )
+with aba_horas:
+    st.subheader(f"Horas trabalhadas — {MESES[mes - 1]} de {ano}")
+    st.caption(
+        "🟩 8 horas ou mais  •  🟥 menos de 8 horas  •  🟨 turno ainda em curso  •  "
+        "S = sábado  •  D = domingo  •  F = feriado  •  vazio = dia futuro"
+    )
+    tabela_horas = montar_tabela_horas(dados, ano, mes, grupos, equipes)
+    if tabela_horas.empty:
+        st.info("Nenhuma equipe disponível para os filtros selecionados.")
+    else:
+        colunas_dias = [coluna for coluna in tabela_horas.columns if coluna != "TOTAL (h)"]
+        horas_estilizadas = (
+            tabela_horas.style
+            .map(estilo_horas, subset=colunas_dias)
+            .format(precision=1, decimal=",", subset=["TOTAL (h)"])
+            .set_properties(
+                subset=["TOTAL (h)"],
+                **{"font-weight": "700", "background-color": "#f1f5f9"},
+            )
+        )
+        st.dataframe(
+            horas_estilizadas,
+            use_container_width=True,
+            height=min(800, 70 + len(tabela_horas) * 35),
         )
 with aba_resumo:
     if filtrado.empty:
