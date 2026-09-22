@@ -40,6 +40,17 @@ def converter_data_hora(valores):
     return resultado
 
 
+def formatar_duracao(valor):
+    if pd.isna(valor):
+        return ""
+    if not isinstance(valor, (int, float)):
+        return str(valor)
+    minutos_totais = round(abs(float(valor)) * 60)
+    horas, minutos = divmod(minutos_totais, 60)
+    sinal = "-" if float(valor) < 0 else ""
+    return f"{sinal}{horas:02d}:{minutos:02d}"
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def carregar_turnos():
     configuracao = st.secrets["apps_script"]
@@ -79,6 +90,7 @@ def preparar_dados(brutos):
     dados["DURACAO_HORAS"] = (
         (dados["FIM_TURNO"] - dados["INICIO_TURNO"]).dt.total_seconds() / 3600
     ).round(2)
+    dados["DURACAO"] = dados["DURACAO_HORAS"].apply(formatar_duracao)
     dados["DIFERENCA_FECHAMENTO_MIN"] = (
         (dados["FIM_TURNO"] - dados["SAIDA_PREVISTA"]).dt.total_seconds() / 60
     ).round().astype("Int64")
@@ -292,11 +304,11 @@ metricas[0].metric("Turnos", filtrado["HIST_TURMA_PLANTAO_ID"].nunique())
 metricas[1].metric("Equipes", filtrado["PREFIXO"].nunique())
 metricas[2].metric("Em andamento", int(filtrado["SITUACAO"].eq("EM ANDAMENTO").sum()))
 mediana = filtrado["DURACAO_HORAS"].median()
-metricas[3].metric("Duração mediana", "—" if pd.isna(mediana) else f"{mediana:.1f} h")
+metricas[3].metric("Duração mediana", "—" if pd.isna(mediana) else formatar_duracao(mediana))
 
 colunas = [
     "DATA", "GRUPO", "PREFIXO", "INICIO_TURNO", "SAIDA_PREVISTA", "FIM_TURNO",
-    "SITUACAO", "DURACAO_HORAS", "DIFERENCA_FECHAMENTO_MIN",
+    "SITUACAO", "DURACAO", "DIFERENCA_FECHAMENTO_MIN",
     "PARTICIPA_ESCALA", "OBSERVACAO",
 ]
 aba_turnos, aba_mapa, aba_horas, aba_resumo = st.tabs(
@@ -311,7 +323,7 @@ with aba_turnos:
             "INICIO_TURNO": st.column_config.DatetimeColumn("Abertura", format="DD/MM/YYYY HH:mm"),
             "SAIDA_PREVISTA": st.column_config.DatetimeColumn("Saída prevista", format="DD/MM/YYYY HH:mm"),
             "FIM_TURNO": st.column_config.DatetimeColumn("Fechamento", format="DD/MM/YYYY HH:mm"),
-            "DURACAO_HORAS": st.column_config.NumberColumn("Duração (h)", format="%.2f"),
+            "DURACAO": st.column_config.TextColumn("Duração"),
             "DIFERENCA_FECHAMENTO_MIN": st.column_config.NumberColumn("Diferença fechamento (min)", format="%d"),
         },
     )
@@ -353,7 +365,7 @@ with aba_horas:
         horas_estilizadas = (
             tabela_horas.style
             .map(estilo_horas, subset=colunas_dias)
-            .format(precision=1, decimal=",", subset=["TOTAL (h)"])
+            .format(formatar_duracao, subset=colunas_dias + ["TOTAL (h)"])
             .set_properties(
                 subset=["TOTAL (h)"],
                 **{"font-weight": "700", "background-color": "#f1f5f9"},
