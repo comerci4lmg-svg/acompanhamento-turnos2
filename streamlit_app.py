@@ -13,6 +13,13 @@ import streamlit as st
 
 st.set_page_config(page_title="Acompanhamento de Turnos GO", page_icon="📊", layout="wide")
 GRUPOS = ["GOOL", "GOOC", "GOOK", "GOOH"]
+EQUIPES_DESMOBILIZADAS = {
+    "GOOH013M",
+    "GOOL007M",
+    "GOOK013M",
+    "GOOK012M",
+    "GOOK010M",
+}
 MESES = [
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
@@ -138,6 +145,20 @@ def feriados_brasil(ano):
     }
 
 
+def ocultar_desmobilizadas_sem_movimento(dados, ano, mes):
+    datas = pd.to_datetime(dados["DATA"], errors="coerce")
+    equipes_com_movimento = set(
+        dados.loc[datas.dt.year.eq(ano) & datas.dt.month.eq(mes), "PREFIXO"]
+        .dropna()
+        .astype(str)
+    )
+    manter = (
+        ~dados["PREFIXO"].isin(EQUIPES_DESMOBILIZADAS)
+        | dados["PREFIXO"].isin(equipes_com_movimento)
+    )
+    return dados[manter].copy()
+
+
 def montar_mapa_mensal(dados, ano, mes, grupos, equipes_selecionadas):
     quantidade_dias = calendar.monthrange(ano, mes)[1]
     dias = list(range(1, quantidade_dias + 1))
@@ -147,6 +168,7 @@ def montar_mapa_mensal(dados, ano, mes, grupos, equipes_selecionadas):
     universo = dados[dados["GRUPO"].isin(grupos)].copy()
     if equipes_selecionadas:
         universo = universo[universo["PREFIXO"].isin(equipes_selecionadas)]
+    universo = ocultar_desmobilizadas_sem_movimento(universo, ano, mes)
     equipes_mapa = sorted(universo["PREFIXO"].dropna().unique())
 
     datas = pd.to_datetime(universo["DATA"], errors="coerce")
@@ -200,6 +222,7 @@ def montar_tabela_horas(dados, ano, mes, grupos, equipes_selecionadas):
     universo = dados[dados["GRUPO"].isin(grupos)].copy()
     if equipes_selecionadas:
         universo = universo[universo["PREFIXO"].isin(equipes_selecionadas)]
+    universo = ocultar_desmobilizadas_sem_movimento(universo, ano, mes)
     equipes_tabela = sorted(universo["PREFIXO"].dropna().unique())
 
     datas = pd.to_datetime(universo["DATA"], errors="coerce")
