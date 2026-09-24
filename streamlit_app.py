@@ -14,6 +14,11 @@ import streamlit as st
 st.set_page_config(page_title="Acompanhamento de Turnos GO", page_icon="📊", layout="wide")
 GRUPOS = ["GOOL", "GOOC", "GOOK", "GOOH"]
 EQUIPES_DESMOBILIZADAS = {
+    "GOOH013M",
+    "GOOL007M",
+    "GOOL021M",
+    "GOOL024M",
+    "GOOL025M",
     "GOOK013M",
     "GOOK012M",
     "GOOK010M",
@@ -75,7 +80,7 @@ def juntar_valores_distintos(valores):
 
 
 def consolidar_turnos_por_equipe_dia(dados):
-    """Une reaberturas da mesma equipe no dia e calcula os intervalos entre elas."""
+    """Une reaberturas da mesma equipe no dia e soma os intervalos oficiais."""
     dados_validos = dados[dados["INICIO_TURNO"].notna()].copy()
     linhas = []
     for (data_turno, grupo, prefixo), registros in dados_validos.groupby(
@@ -412,9 +417,11 @@ def estilo_intervalos(valor):
     if isinstance(valor, (int, float)) and not pd.isna(valor):
         if float(valor) == 0:
             return "background-color: #dcfce7; color: #166534; font-weight: 700;"
+        if float(valor) > 1.25:
+            return "background-color: #dc2626; color: white; font-weight: 700;"
         return "background-color: #fed7aa; color: #9a3412; font-weight: 700;"
     estilos = {
-        "SEM TURNO": "background-color: #fee2e2; color: #991b1b; font-weight: 700;",
+        "SEM TURNO": "background-color: #ffffff; color: #334155; font-weight: 700;",
         "S": "background-color: #dbeafe; color: #1e3a8a; font-weight: 700;",
         "D": "background-color: #e2e8f0; color: #334155; font-weight: 700;",
         "F": "background-color: #fef3c7; color: #92400e; font-weight: 700;",
@@ -555,8 +562,9 @@ with aba_horas:
 with aba_intervalos:
     st.subheader(f"Tempo de intervalo — {MESES[mes - 1]} de {ano}")
     st.caption(
-        "O intervalo é o tempo entre um fechamento e a abertura seguinte da mesma equipe no dia.  "
-        "🟩 sem intervalo  •  🟧 possui intervalo  •  🟥 sem turno  •  "
+        "Soma dos intervalos oficiais registrados para a equipe no dia.  "
+        "🟩 sem intervalo  •  🟧 até 01:15  •  🟥 acima de 01:15  •  "
+        "branco = sem turno  •  "
         "S = sábado  •  D = domingo  •  F = feriado  •  vazio = dia futuro"
     )
     tabela_intervalos = montar_tabela_intervalos(dados, ano, mes, grupos, equipes)
