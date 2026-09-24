@@ -551,11 +551,13 @@ else:
         ["INTERVALO_OFICIAL_SEGUNDOS", "INICIO_INTERVALO"],
         ascending=[False, True],
     ).reset_index(drop=True)
-    ranking_intervalos.insert(0, "POSICAO", range(1, len(ranking_intervalos) + 1))
     ranking_intervalos["MOTIVO_INTERVALO"] = (
         ranking_intervalos["MOTIVO_INTERVALO"].fillna("").astype(str).str.strip()
         .replace("", "Não informado")
     )
+    ranking_intervalos["CATEGORIA_MOTIVO"] = ranking_intervalos[
+        "MOTIVO_INTERVALO"
+    ].map(normalizar_nome)
 
 metricas = st.columns(4)
 metricas[0].metric("Turnos consolidados", filtrado["HIST_TURMA_PLANTAO_ID"].nunique())
@@ -671,10 +673,10 @@ with aba_intervalos:
             height=min(800, 70 + len(tabela_intervalos) * 35),
         )
 with aba_ranking:
-    st.subheader(f"Maiores intervalos individuais — {MESES[mes - 1]} de {ano}")
+    st.subheader(f"Maiores intervalos por motivo — {MESES[mes - 1]} de {ano}")
     st.caption(
         "Cada linha representa um intervalo oficial individual. Os valores não são "
-        "somados por equipe nem por dia."
+        "somados por equipe nem por dia. Cada tabela possui sua própria classificação."
     )
     if ranking_intervalos.empty:
         st.info(
@@ -682,37 +684,56 @@ with aba_ranking:
             "o bot atualizado para enviar os detalhes dos intervalos."
         )
     else:
-        colunas_ranking = [
-            "POSICAO", "PREFIXO", "INICIO_INTERVALO", "FIM_INTERVALO",
-            "DURACAO_INTERVALO", "MOTIVO_INTERVALO",
+        categorias_ranking = [
+            ("Refeição", "REFEICAO", "refeicao"),
+            ("Manutenção no veículo", "MANUTENCAO_NO_VEICULO", "manutencao"),
+            ("Retorno para a base", "RETORNO_PARA_BASE", "retorno_base"),
         ]
-        st.dataframe(
-            ranking_intervalos[colunas_ranking],
-            hide_index=True,
-            use_container_width=True,
-            height=min(800, 70 + len(ranking_intervalos) * 35),
-            column_config={
-                "POSICAO": st.column_config.NumberColumn("Posição", format="%d"),
-                "PREFIXO": st.column_config.TextColumn("Equipe"),
-                "INICIO_INTERVALO": st.column_config.DatetimeColumn(
-                    "Início do intervalo", format="DD/MM/YYYY HH:mm"
+        for titulo_categoria, codigo_categoria, chave_categoria in categorias_ranking:
+            st.markdown(f"#### {titulo_categoria}")
+            tabela_categoria = ranking_intervalos[
+                ranking_intervalos["CATEGORIA_MOTIVO"].eq(codigo_categoria)
+            ].copy().reset_index(drop=True)
+            tabela_categoria.insert(
+                0, "POSICAO", range(1, len(tabela_categoria) + 1)
+            )
+            if tabela_categoria.empty:
+                st.info(f"Nenhum intervalo de {titulo_categoria.lower()} no período.")
+                continue
+
+            colunas_ranking = [
+                "POSICAO", "PREFIXO", "INICIO_INTERVALO", "FIM_INTERVALO",
+                "DURACAO_INTERVALO", "MOTIVO_INTERVALO",
+            ]
+            st.dataframe(
+                tabela_categoria[colunas_ranking],
+                hide_index=True,
+                use_container_width=True,
+                height=min(600, 70 + len(tabela_categoria) * 35),
+                column_config={
+                    "POSICAO": st.column_config.NumberColumn("Posição", format="%d"),
+                    "PREFIXO": st.column_config.TextColumn("Equipe"),
+                    "INICIO_INTERVALO": st.column_config.DatetimeColumn(
+                        "Início do intervalo", format="DD/MM/YYYY HH:mm"
+                    ),
+                    "FIM_INTERVALO": st.column_config.DatetimeColumn(
+                        "Fim do intervalo", format="DD/MM/YYYY HH:mm"
+                    ),
+                    "DURACAO_INTERVALO": st.column_config.TextColumn("Duração"),
+                    "MOTIVO_INTERVALO": st.column_config.TextColumn("Motivo"),
+                },
+            )
+            st.download_button(
+                f"Baixar ranking de {titulo_categoria.lower()} em CSV",
+                tabela_categoria[colunas_ranking].to_csv(
+                    index=False, sep=";", decimal=","
+                ).encode("utf-8-sig"),
+                file_name=(
+                    f"ranking_{chave_categoria}_{ano}_{mes:02}.csv"
                 ),
-                "FIM_INTERVALO": st.column_config.DatetimeColumn(
-                    "Fim do intervalo", format="DD/MM/YYYY HH:mm"
-                ),
-                "DURACAO_INTERVALO": st.column_config.TextColumn("Duração"),
-                "MOTIVO_INTERVALO": st.column_config.TextColumn("Motivo"),
-            },
-        )
-        st.download_button(
-            "Baixar ranking em CSV",
-            ranking_intervalos[colunas_ranking].to_csv(
-                index=False, sep=";", decimal=","
-            ).encode("utf-8-sig"),
-            file_name=f"ranking_intervalos_{ano}_{mes:02}.csv",
-            mime="text/csv",
-            key="baixar_ranking_intervalos",
-        )
+                mime="text/csv",
+                key=f"baixar_ranking_{chave_categoria}",
+            )
 with aba_resumo:
     if filtrado.empty:
         st.info("Nenhum turno encontrado para os filtros selecionados.")
