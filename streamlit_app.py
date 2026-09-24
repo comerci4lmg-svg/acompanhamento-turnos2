@@ -115,7 +115,9 @@ def consolidar_turnos_por_equipe_dia(dados):
         trabalho_horas = float("nan")
         if not em_andamento:
             permanencia_horas = max(0.0, (fim - inicio).total_seconds() / 3600)
-            trabalho_horas = max(0.0, permanencia_horas - intervalo_horas)
+            # Para o acompanhamento, a jornada vai da primeira abertura ao último
+            # fechamento. Os intervalos são exibidos separadamente, sem desconto.
+            trabalho_horas = permanencia_horas
 
         saida_prevista = registros.iloc[0]["SAIDA_PREVISTA"]
         diferenca_fechamento = pd.NA
