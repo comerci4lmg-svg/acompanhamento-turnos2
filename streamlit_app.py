@@ -132,7 +132,7 @@ def consolidar_turnos_por_equipe_dia(dados):
             "SAIDA_PREVISTA": saida_prevista,
             "FIM_TURNO": pd.NaT if em_andamento else fim,
             "SITUACAO": "EM ANDAMENTO" if em_andamento else "ENCERRADO",
-            "ABERTURAS_NO_DIA": len(registros),
+            "ABERTURAS_NO_DIA": registros["HIST_TURMA_PLANTAO_ID"].nunique(),
             "PERMANENCIA_HORAS": round(permanencia_horas, 4),
             "INTERVALO_HORAS": round(intervalo_horas, 4),
             "DURACAO_HORAS": round(trabalho_horas, 4),
@@ -175,7 +175,7 @@ def preparar_dados(brutos):
 
     for coluna in [
         "INICIO_TURNO", "SAIDA_PREVISTA", "FIM_TURNO",
-        "PRIMEIRO_INICIO_INTERVALO", "ULTIMO_FIM_INTERVALO",
+        "INICIO_INTERVALO", "FIM_INTERVALO",
     ]:
         if coluna not in dados.columns:
             dados[coluna] = pd.NaT
@@ -193,7 +193,10 @@ def preparar_dados(brutos):
             dados["INTERVALO_OFICIAL_SEGUNDOS"], errors="coerce"
         ).fillna(0)
     if "MOTIVOS_INTERVALO" not in dados.columns:
-        dados["MOTIVOS_INTERVALO"] = ""
+        if "MOTIVO_INTERVALO" in dados.columns:
+            dados["MOTIVOS_INTERVALO"] = dados["MOTIVO_INTERVALO"]
+        else:
+            dados["MOTIVOS_INTERVALO"] = ""
     if "HIST_TURMA_PLANTAO_ID" not in dados.columns:
         dados["HIST_TURMA_PLANTAO_ID"] = range(1, len(dados) + 1)
     consolidados = consolidar_turnos_por_equipe_dia(dados)
@@ -203,6 +206,41 @@ def preparar_dados(brutos):
         consolidados["DIFERENCA_FECHAMENTO_MIN"], dtype="Int64"
     )
     return consolidados.sort_values(["INICIO_TURNO", "PREFIXO"], na_position="last")
+
+
+def preparar_intervalos_individuais(brutos):
+    """Prepara um registro por intervalo oficial para o ranking."""
+    dados = brutos.copy()
+    dados.columns = [normalizar_nome(coluna) for coluna in dados.columns]
+    necessarias = {
+        "INTERVALO_ID", "PREFIXO", "INICIO_INTERVALO", "FIM_INTERVALO",
+        "INTERVALO_OFICIAL_SEGUNDOS",
+    }
+    if not necessarias.issubset(dados.columns):
+        return pd.DataFrame()
+
+    dados["INICIO_INTERVALO"] = converter_data_hora(dados["INICIO_INTERVALO"])
+    dados["FIM_INTERVALO"] = converter_data_hora(dados["FIM_INTERVALO"])
+    dados["INTERVALO_OFICIAL_SEGUNDOS"] = pd.to_numeric(
+        dados["INTERVALO_OFICIAL_SEGUNDOS"], errors="coerce"
+    )
+    dados["PREFIXO"] = dados["PREFIXO"].astype(str).str.strip().str.upper()
+    dados["GRUPO"] = dados["PREFIXO"].str[:4]
+    if "MOTIVO_INTERVALO" not in dados.columns:
+        dados["MOTIVO_INTERVALO"] = ""
+
+    validos = (
+        dados["INTERVALO_ID"].notna()
+        & dados["INTERVALO_ID"].astype(str).str.strip().ne("")
+        & dados["INICIO_INTERVALO"].notna()
+        & dados["FIM_INTERVALO"].notna()
+        & dados["INTERVALO_OFICIAL_SEGUNDOS"].ge(0)
+        & dados["GRUPO"].isin(GRUPOS)
+    )
+    intervalos = dados.loc[validos].drop_duplicates("INTERVALO_ID").copy()
+    intervalos["INTERVALO_HORAS"] = intervalos["INTERVALO_OFICIAL_SEGUNDOS"] / 3600
+    intervalos["DURACAO_INTERVALO"] = intervalos["INTERVALO_HORAS"].map(formatar_duracao)
+    return intervalos
 
 
 def domingo_de_pascoa(ano):
@@ -458,6 +496,7 @@ try:
             st.warning("A planilha ainda está vazia. Execute o teste do bot para enviar os dados.")
             st.stop()
         dados = preparar_dados(brutos)
+        intervalos_individuais = preparar_intervalos_individuais(brutos)
 except Exception as erro:
     st.error("Não foi possível consultar a planilha de turnos.")
     st.code(str(erro))
@@ -492,6 +531,32 @@ situacoes = st.sidebar.multiselect(
 )
 filtrado = filtrado[filtrado["SITUACAO"].isin(situacoes)]
 
+if intervalos_individuais.empty:
+    ranking_intervalos = pd.DataFrame()
+else:
+    datas_ranking = pd.to_datetime(
+        intervalos_individuais["INICIO_INTERVALO"], errors="coerce"
+    )
+    ranking_intervalos = intervalos_individuais[
+        datas_ranking.dt.year.eq(ano)
+        & datas_ranking.dt.month.eq(mes)
+        & intervalos_individuais["GRUPO"].isin(grupos)
+        & intervalos_individuais["INTERVALO_OFICIAL_SEGUNDOS"].gt(0)
+    ].copy()
+    if equipes:
+        ranking_intervalos = ranking_intervalos[
+            ranking_intervalos["PREFIXO"].isin(equipes)
+        ]
+    ranking_intervalos = ranking_intervalos.sort_values(
+        ["INTERVALO_OFICIAL_SEGUNDOS", "INICIO_INTERVALO"],
+        ascending=[False, True],
+    ).reset_index(drop=True)
+    ranking_intervalos.insert(0, "POSICAO", range(1, len(ranking_intervalos) + 1))
+    ranking_intervalos["MOTIVO_INTERVALO"] = (
+        ranking_intervalos["MOTIVO_INTERVALO"].fillna("").astype(str).str.strip()
+        .replace("", "Não informado")
+    )
+
 metricas = st.columns(4)
 metricas[0].metric("Turnos consolidados", filtrado["HIST_TURMA_PLANTAO_ID"].nunique())
 metricas[1].metric("Equipes", filtrado["PREFIXO"].nunique())
@@ -505,8 +570,11 @@ colunas = [
     "DIFERENCA_FECHAMENTO_MIN",
     "MOTIVOS_INTERVALO", "PARTICIPA_ESCALA", "OBSERVACAO",
 ]
-aba_turnos, aba_mapa, aba_horas, aba_intervalos, aba_resumo = st.tabs(
-    ["Turnos", "Mapa mensal", "Horas trabalhadas", "Intervalos", "Resumo diário"]
+aba_turnos, aba_mapa, aba_horas, aba_intervalos, aba_ranking, aba_resumo = st.tabs(
+    [
+        "Turnos", "Mapa mensal", "Horas trabalhadas", "Intervalos",
+        "Ranking de intervalos", "Resumo diário",
+    ]
 )
 with aba_turnos:
     st.subheader(f"Turnos de {MESES[mes - 1]} de {ano}")
@@ -601,6 +669,49 @@ with aba_intervalos:
             intervalos_estilizados,
             use_container_width=True,
             height=min(800, 70 + len(tabela_intervalos) * 35),
+        )
+with aba_ranking:
+    st.subheader(f"Maiores intervalos individuais — {MESES[mes - 1]} de {ano}")
+    st.caption(
+        "Cada linha representa um intervalo oficial individual. Os valores não são "
+        "somados por equipe nem por dia."
+    )
+    if ranking_intervalos.empty:
+        st.info(
+            "Nenhum intervalo individual encerrado foi encontrado. Execute novamente "
+            "o bot atualizado para enviar os detalhes dos intervalos."
+        )
+    else:
+        colunas_ranking = [
+            "POSICAO", "PREFIXO", "INICIO_INTERVALO", "FIM_INTERVALO",
+            "DURACAO_INTERVALO", "MOTIVO_INTERVALO",
+        ]
+        st.dataframe(
+            ranking_intervalos[colunas_ranking],
+            hide_index=True,
+            use_container_width=True,
+            height=min(800, 70 + len(ranking_intervalos) * 35),
+            column_config={
+                "POSICAO": st.column_config.NumberColumn("Posição", format="%d"),
+                "PREFIXO": st.column_config.TextColumn("Equipe"),
+                "INICIO_INTERVALO": st.column_config.DatetimeColumn(
+                    "Início do intervalo", format="DD/MM/YYYY HH:mm"
+                ),
+                "FIM_INTERVALO": st.column_config.DatetimeColumn(
+                    "Fim do intervalo", format="DD/MM/YYYY HH:mm"
+                ),
+                "DURACAO_INTERVALO": st.column_config.TextColumn("Duração"),
+                "MOTIVO_INTERVALO": st.column_config.TextColumn("Motivo"),
+            },
+        )
+        st.download_button(
+            "Baixar ranking em CSV",
+            ranking_intervalos[colunas_ranking].to_csv(
+                index=False, sep=";", decimal=","
+            ).encode("utf-8-sig"),
+            file_name=f"ranking_intervalos_{ano}_{mes:02}.csv",
+            mime="text/csv",
+            key="baixar_ranking_intervalos",
         )
 with aba_resumo:
     if filtrado.empty:
