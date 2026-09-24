@@ -87,16 +87,23 @@ def consolidar_turnos_por_equipe_dia(dados):
         fim = ultimo["FIM_TURNO"]
         em_andamento = pd.isna(fim)
 
-        intervalo_segundos = 0.0
-        fim_cobertura = None
-        for _, registro in registros.iterrows():
-            inicio_registro = registro["INICIO_TURNO"]
-            fim_registro = registro["FIM_TURNO"]
-            if fim_cobertura is not None and inicio_registro > fim_cobertura:
-                intervalo_segundos += (inicio_registro - fim_cobertura).total_seconds()
-            if not pd.isna(fim_registro):
-                if fim_cobertura is None or fim_registro > fim_cobertura:
-                    fim_cobertura = fim_registro
+        if "INTERVALO_OFICIAL_SEGUNDOS" in registros.columns:
+            intervalo_segundos = float(
+                pd.to_numeric(registros["INTERVALO_OFICIAL_SEGUNDOS"], errors="coerce")
+                .fillna(0)
+                .sum()
+            )
+        else:
+            intervalo_segundos = 0.0
+            fim_cobertura = None
+            for _, registro in registros.iterrows():
+                inicio_registro = registro["INICIO_TURNO"]
+                fim_registro = registro["FIM_TURNO"]
+                if fim_cobertura is not None and inicio_registro > fim_cobertura:
+                    intervalo_segundos += (inicio_registro - fim_cobertura).total_seconds()
+                if not pd.isna(fim_registro):
+                    if fim_cobertura is None or fim_registro > fim_cobertura:
+                        fim_cobertura = fim_registro
 
         intervalo_horas = intervalo_segundos / 3600
         permanencia_horas = float("nan")
@@ -128,6 +135,8 @@ def consolidar_turnos_por_equipe_dia(dados):
             "DIFERENCA_FECHAMENTO_MIN": diferenca_fechamento,
             "PARTICIPA_ESCALA": primeiro_valor_preenchido(registros["PARTICIPA_ESCALA"]),
             "OBSERVACAO": juntar_valores_distintos(registros["OBSERVACAO"]),
+            "MOTIVOS_INTERVALO": juntar_valores_distintos(registros["MOTIVOS_INTERVALO"])
+                if "MOTIVOS_INTERVALO" in registros.columns else "",
             "HIST_TURMA_PLANTAO_ID": f"{prefixo}-{data_turno}",
         })
     return pd.DataFrame(linhas)
@@ -157,7 +166,10 @@ def preparar_dados(brutos):
     if ausentes:
         raise ValueError("Colunas ausentes na planilha: " + ", ".join(ausentes))
 
-    for coluna in ["INICIO_TURNO", "SAIDA_PREVISTA", "FIM_TURNO"]:
+    for coluna in [
+        "INICIO_TURNO", "SAIDA_PREVISTA", "FIM_TURNO",
+        "PRIMEIRO_INICIO_INTERVALO", "ULTIMO_FIM_INTERVALO",
+    ]:
         if coluna not in dados.columns:
             dados[coluna] = pd.NaT
         dados[coluna] = converter_data_hora(dados[coluna])
@@ -169,6 +181,12 @@ def preparar_dados(brutos):
     for coluna in ["PARTICIPA_ESCALA", "OBSERVACAO"]:
         if coluna not in dados.columns:
             dados[coluna] = ""
+    if "INTERVALO_OFICIAL_SEGUNDOS" in dados.columns:
+        dados["INTERVALO_OFICIAL_SEGUNDOS"] = pd.to_numeric(
+            dados["INTERVALO_OFICIAL_SEGUNDOS"], errors="coerce"
+        ).fillna(0)
+    if "MOTIVOS_INTERVALO" not in dados.columns:
+        dados["MOTIVOS_INTERVALO"] = ""
     if "HIST_TURMA_PLANTAO_ID" not in dados.columns:
         dados["HIST_TURMA_PLANTAO_ID"] = range(1, len(dados) + 1)
     consolidados = consolidar_turnos_por_equipe_dia(dados)
@@ -463,7 +481,7 @@ colunas = [
     "DATA", "GRUPO", "PREFIXO", "INICIO_TURNO", "SAIDA_PREVISTA", "FIM_TURNO",
     "SITUACAO", "ABERTURAS_NO_DIA", "PERMANENCIA", "INTERVALO", "DURACAO",
     "DIFERENCA_FECHAMENTO_MIN",
-    "PARTICIPA_ESCALA", "OBSERVACAO",
+    "MOTIVOS_INTERVALO", "PARTICIPA_ESCALA", "OBSERVACAO",
 ]
 aba_turnos, aba_mapa, aba_horas, aba_intervalos, aba_resumo = st.tabs(
     ["Turnos", "Mapa mensal", "Horas trabalhadas", "Intervalos", "Resumo diário"]
@@ -481,6 +499,7 @@ with aba_turnos:
             "PERMANENCIA": st.column_config.TextColumn("Permanência total"),
             "INTERVALO": st.column_config.TextColumn("Intervalo"),
             "DURACAO": st.column_config.TextColumn("Tempo trabalhado"),
+            "MOTIVOS_INTERVALO": st.column_config.TextColumn("Motivo do intervalo"),
             "DIFERENCA_FECHAMENTO_MIN": st.column_config.NumberColumn("Diferença fechamento (min)", format="%d"),
         },
     )
