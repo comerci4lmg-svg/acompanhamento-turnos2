@@ -338,7 +338,7 @@ def montar_tabela_horas(dados, ano, mes, grupos, equipes_selecionadas):
                     valor = "EM CURSO"
                 else:
                     horas = float(turnos_dia["DURACAO_HORAS"].fillna(0).sum())
-                    valor = round(horas, 1)
+                    valor = "-" if horas == 0 else round(horas, 4)
                     total_horas += horas
             elif data_celula > hoje:
                 valor = ""
@@ -349,9 +349,9 @@ def montar_tabela_horas(dados, ano, mes, grupos, equipes_selecionadas):
             elif data_celula.weekday() == 6:
                 valor = "D"
             else:
-                valor = 0.0
+                valor = "-"
             linha[dia] = valor
-        linha["TOTAL (h)"] = round(total_horas, 1)
+        linha["TOTAL (h)"] = "-" if total_horas == 0 else round(total_horas, 4)
         linhas.append(linha)
     return pd.DataFrame(linhas).set_index("EQUIPE") if linhas else pd.DataFrame()
 
@@ -363,12 +363,19 @@ def estilo_horas(valor):
         return "background-color: #dc2626; color: white; font-weight: 700;"
     estilos = {
         "EM CURSO": "background-color: #facc15; color: #713f12; font-weight: 700;",
+        "-": "background-color: #ffffff; color: #334155; font-weight: 700;",
         "S": "background-color: #dbeafe; color: #1e3a8a; font-weight: 700;",
         "D": "background-color: #e2e8f0; color: #334155; font-weight: 700;",
         "F": "background-color: #fef3c7; color: #92400e; font-weight: 700;",
         "": "background-color: #f8fafc; color: #94a3b8;",
     }
     return estilos.get(str(valor), "")
+
+
+def estilo_total_horas(valor):
+    if str(valor) == "-":
+        return "background-color: #ffffff; color: #334155; font-weight: 700;"
+    return "background-color: #f1f5f9; font-weight: 700;"
 
 
 def montar_tabela_intervalos(dados, ano, mes, grupos, equipes_selecionadas):
@@ -540,7 +547,8 @@ with aba_horas:
     st.subheader(f"Horas trabalhadas — {MESES[mes - 1]} de {ano}")
     st.caption(
         "🟩 8 horas ou mais  •  🟥 menos de 8 horas  •  🟨 turno ainda em curso  •  "
-        "S = sábado  •  D = domingo  •  F = feriado  •  vazio = dia futuro"
+        "- = nenhuma hora  •  S = sábado  •  D = domingo  •  F = feriado  •  "
+        "vazio = dia futuro"
     )
     tabela_horas = montar_tabela_horas(dados, ano, mes, grupos, equipes)
     if tabela_horas.empty:
@@ -551,10 +559,7 @@ with aba_horas:
             tabela_horas.style
             .map(estilo_horas, subset=colunas_dias)
             .format(formatar_duracao, subset=colunas_dias + ["TOTAL (h)"])
-            .set_properties(
-                subset=["TOTAL (h)"],
-                **{"font-weight": "700", "background-color": "#f1f5f9"},
-            )
+            .map(estilo_total_horas, subset=["TOTAL (h)"])
         )
         st.dataframe(
             horas_estilizadas,
