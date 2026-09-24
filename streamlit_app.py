@@ -427,10 +427,13 @@ def montar_tabela_intervalos(dados, ano, mes, grupos, equipes_selecionadas):
 
 def estilo_intervalos(valor):
     if isinstance(valor, (int, float)) and not pd.isna(valor):
-        if float(valor) == 0:
-            return "background-color: #dcfce7; color: #166534; font-weight: 700;"
-        if float(valor) > 1.25:
+        minutos_totais = round(float(valor) * 60)
+        if minutos_totais > 2 * 60 + 30:
+            return "background-color: #7e22ce; color: white; font-weight: 700;"
+        if minutos_totais > 1 * 60 + 15:
             return "background-color: #dc2626; color: white; font-weight: 700;"
+        if minutos_totais >= 1 * 60:
+            return "background-color: #16a34a; color: white; font-weight: 700;"
         return "background-color: #fed7aa; color: #9a3412; font-weight: 700;"
     estilos = {
         "SEM TURNO": "background-color: #ffffff; color: #334155; font-weight: 700;",
@@ -574,7 +577,9 @@ with aba_intervalos:
     st.subheader(f"Tempo de intervalo — {MESES[mes - 1]} de {ano}")
     st.caption(
         "Soma dos intervalos oficiais registrados para a equipe no dia.  "
-        "🟩 sem intervalo  •  🟧 até 01:15  •  🟥 acima de 01:15  •  "
+        "🟧 menos de 01:00  •  🟩 de 01:00 até 01:15  •  "
+        "🟥 de 01:16 até 02:30  •  "
+        "🟪 acima de 02:30  •  "
         "branco = sem turno  •  "
         "S = sábado  •  D = domingo  •  F = feriado  •  vazio = dia futuro"
     )
