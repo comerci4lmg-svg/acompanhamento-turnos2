@@ -358,8 +358,11 @@ def montar_tabela_horas(dados, ano, mes, grupos, equipes_selecionadas):
 
 def estilo_horas(valor):
     if isinstance(valor, (int, float)) and not pd.isna(valor):
-        if float(valor) >= 8:
+        minutos_totais = round(float(valor) * 60)
+        if minutos_totais >= 8 * 60:
             return "background-color: #16a34a; color: white; font-weight: 700;"
+        if minutos_totais < 6 * 60:
+            return "background-color: #7e22ce; color: white; font-weight: 700;"
         return "background-color: #dc2626; color: white; font-weight: 700;"
     estilos = {
         "EM CURSO": "background-color: #facc15; color: #713f12; font-weight: 700;",
@@ -546,7 +549,8 @@ with aba_mapa:
 with aba_horas:
     st.subheader(f"Horas trabalhadas — {MESES[mes - 1]} de {ano}")
     st.caption(
-        "🟩 8 horas ou mais  •  🟥 menos de 8 horas  •  🟨 turno ainda em curso  •  "
+        "🟪 menos de 6 horas  •  🟥 de 6 horas até 07:59  •  "
+        "🟩 8 horas ou mais  •  🟨 turno ainda em curso  •  "
         "- = nenhuma hora  •  S = sábado  •  D = domingo  •  F = feriado  •  "
         "vazio = dia futuro"
     )
