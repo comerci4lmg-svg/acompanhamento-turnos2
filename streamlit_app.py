@@ -11,7 +11,7 @@ import requests
 import streamlit as st
 
 
-st.set_page_config(page_title="Acompanhamento de Turnos GO", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Acompanhamento de Turnos GO", page_icon="⏳", layout="wide")
 GRUPOS = ["GOOL", "GOOC", "GOOK", "GOOH"]
 EQUIPES_DESMOBILIZADAS = {
     "GOOH013M",
