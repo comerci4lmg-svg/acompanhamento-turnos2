@@ -112,21 +112,32 @@ def injetar_estilo():
 
         /* Abas */
         .stTabs [data-baseweb="tab-list"] {
-            gap: 6px;
-            background: var(--gg-card);
-            padding: 6px;
-            border-radius: 14px;
-            border: 1px solid var(--gg-border);
+            gap: 4px;
+            background: transparent;
+            padding: 0;
+            border-bottom: 1px solid var(--gg-border);
         }
         .stTabs [data-baseweb="tab"] {
-            border-radius: 10px;
-            padding: 8px 16px;
+            border-radius: 0;
+            padding: 8px 14px;
             font-weight: 600;
             color: var(--gg-muted);
+            background: transparent !important;
+            border-bottom: 2px solid transparent;
+        }
+        .stTabs [data-baseweb="tab"]:hover {
+            color: var(--gg-primary);
         }
         .stTabs [aria-selected="true"] {
-            background: var(--gg-primary) !important;
-            color: #ffffff !important;
+            background: transparent !important;
+            color: var(--gg-primary) !important;
+            border-bottom: 2px solid var(--gg-primary) !important;
+        }
+        .stTabs [data-baseweb="tab-highlight"] {
+            background-color: transparent !important;
+        }
+        .stTabs [data-baseweb="tab-border"] {
+            display: none;
         }
 
         /* Cabeçalhos de seção */
