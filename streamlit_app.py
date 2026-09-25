@@ -222,7 +222,7 @@ def cabecalho_hero(atualizado_em_texto):
     st.markdown(
         f"""
         <div class="gg-hero">
-            <h1>📊 Acompanhamento de Turnos GO</h1>
+            <h1>Acompanhamento de Turnos GO</h1>
             <p>Abertura e fechamento reais das equipes de campo • dados atualizados automaticamente pelo bot</p>
             {f'<div class="gg-badge-update">🕒 {atualizado_em_texto}</div>' if atualizado_em_texto else ''}
         </div>
