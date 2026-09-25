@@ -483,6 +483,92 @@ def estilo_intervalos(valor):
     return estilos.get(str(valor), "")
 
 
+def montar_tabela_refeicao(
+    dados, intervalos_individuais, ano, mes, grupos, equipes_selecionadas
+):
+    """Soma somente os intervalos oficiais de refeição por equipe e dia."""
+    quantidade_dias = calendar.monthrange(ano, mes)[1]
+    dias = list(range(1, quantidade_dias + 1))
+    hoje = datetime.now(FUSO_GOIAS).date()
+    feriados = feriados_brasil(ano)
+
+    universo = dados[dados["GRUPO"].isin(grupos)].copy()
+    if equipes_selecionadas:
+        universo = universo[universo["PREFIXO"].isin(equipes_selecionadas)]
+    universo = ocultar_desmobilizadas_sem_movimento(universo, ano, mes)
+    equipes_tabela = sorted(universo["PREFIXO"].dropna().unique())
+
+    datas_turnos = pd.to_datetime(universo["DATA"], errors="coerce")
+    turnos_mes = universo[
+        datas_turnos.dt.year.eq(ano) & datas_turnos.dt.month.eq(mes)
+    ].copy()
+    turnos_mes["DIA"] = pd.to_datetime(turnos_mes["DATA"]).dt.day
+    dias_com_turno = set(zip(turnos_mes["PREFIXO"], turnos_mes["DIA"]))
+
+    refeicoes_por_dia = {}
+    if not intervalos_individuais.empty:
+        refeicoes = intervalos_individuais.copy()
+        datas_refeicao = pd.to_datetime(refeicoes["INICIO_INTERVALO"], errors="coerce")
+        motivos = refeicoes["MOTIVO_INTERVALO"].fillna("").map(normalizar_nome)
+        refeicoes = refeicoes[
+            datas_refeicao.dt.year.eq(ano)
+            & datas_refeicao.dt.month.eq(mes)
+            & refeicoes["GRUPO"].isin(grupos)
+            & motivos.eq("REFEICAO")
+        ].copy()
+        if equipes_selecionadas:
+            refeicoes = refeicoes[refeicoes["PREFIXO"].isin(equipes_selecionadas)]
+        refeicoes["DIA"] = pd.to_datetime(refeicoes["INICIO_INTERVALO"]).dt.day
+        refeicoes_por_dia = (
+            refeicoes.groupby(["PREFIXO", "DIA"])["INTERVALO_HORAS"].sum().to_dict()
+        )
+
+    linhas = []
+    for equipe in equipes_tabela:
+        linha = {"EQUIPE": equipe}
+        total_refeicao = 0.0
+        for dia in dias:
+            data_celula = date(ano, mes, dia)
+            if (equipe, dia) in dias_com_turno:
+                refeicao = float(refeicoes_por_dia.get((equipe, dia), 0.0))
+                valor = round(refeicao, 4)
+                total_refeicao += refeicao
+            elif data_celula > hoje:
+                valor = ""
+            elif data_celula in feriados:
+                valor = "F"
+            elif data_celula.weekday() == 5:
+                valor = "S"
+            elif data_celula.weekday() == 6:
+                valor = "D"
+            else:
+                valor = "SEM TURNO"
+            linha[dia] = valor
+        linha["TOTAL"] = round(total_refeicao, 4)
+        linhas.append(linha)
+    return pd.DataFrame(linhas).set_index("EQUIPE") if linhas else pd.DataFrame()
+
+
+def estilo_refeicao(valor):
+    if isinstance(valor, (int, float)) and not pd.isna(valor):
+        minutos_totais = round(float(valor) * 60)
+        if minutos_totais > 99:
+            return "background-color: #7e22ce; color: white; font-weight: 700;"
+        if minutos_totais > 75:
+            return "background-color: #dc2626; color: white; font-weight: 700;"
+        if minutos_totais >= 59:
+            return "background-color: #16a34a; color: white; font-weight: 700;"
+        return "background-color: #fed7aa; color: #9a3412; font-weight: 700;"
+    estilos = {
+        "SEM TURNO": "background-color: #ffffff; color: #334155; font-weight: 700;",
+        "S": "background-color: #dbeafe; color: #1e3a8a; font-weight: 700;",
+        "D": "background-color: #e2e8f0; color: #334155; font-weight: 700;",
+        "F": "background-color: #fef3c7; color: #92400e; font-weight: 700;",
+        "": "background-color: #f8fafc; color: #94a3b8;",
+    }
+    return estilos.get(str(valor), "")
+
+
 st.title("Acompanhamento de Turnos GO")
 st.caption("Abertura e fechamento reais • dados atualizados pelo bot")
 if st.sidebar.button("Atualizar dados", type="primary", use_container_width=True):
@@ -572,10 +658,13 @@ colunas = [
     "DIFERENCA_FECHAMENTO_MIN",
     "MOTIVOS_INTERVALO", "PARTICIPA_ESCALA", "OBSERVACAO",
 ]
-aba_turnos, aba_mapa, aba_horas, aba_intervalos, aba_ranking, aba_resumo = st.tabs(
+(
+    aba_turnos, aba_mapa, aba_horas, aba_intervalos, aba_refeicao,
+    aba_ranking, aba_resumo,
+) = st.tabs(
     [
         "Turnos", "Mapa mensal", "Horas trabalhadas", "Intervalos",
-        "Ranking de intervalos", "Resumo diário",
+        "Intervalos de refeição", "Ranking de intervalos", "Resumo diário",
     ]
 )
 with aba_turnos:
@@ -671,6 +760,37 @@ with aba_intervalos:
             intervalos_estilizados,
             use_container_width=True,
             height=min(800, 70 + len(tabela_intervalos) * 35),
+        )
+with aba_refeicao:
+    st.subheader(f"Intervalos de refeição — {MESES[mes - 1]} de {ano}")
+    st.caption(
+        "Soma somente os intervalos oficiais classificados como refeição para a "
+        "equipe no dia.  "
+        "🟧 abaixo de 00:59  •  🟩 de 00:59 até 01:15  •  "
+        "🟥 acima de 01:15 até 01:39  •  🟪 acima de 01:39  •  "
+        "branco = sem turno  •  "
+        "S = sábado  •  D = domingo  •  F = feriado  •  vazio = dia futuro"
+    )
+    tabela_refeicao = montar_tabela_refeicao(
+        dados, intervalos_individuais, ano, mes, grupos, equipes
+    )
+    if tabela_refeicao.empty:
+        st.info("Nenhuma equipe disponível para os filtros selecionados.")
+    else:
+        colunas_dias = [coluna for coluna in tabela_refeicao.columns if coluna != "TOTAL"]
+        refeicao_estilizada = (
+            tabela_refeicao.style
+            .map(estilo_refeicao, subset=colunas_dias)
+            .format(formatar_duracao, subset=colunas_dias + ["TOTAL"])
+            .set_properties(
+                subset=["TOTAL"],
+                **{"font-weight": "700", "background-color": "#f1f5f9"},
+            )
+        )
+        st.dataframe(
+            refeicao_estilizada,
+            use_container_width=True,
+            height=min(800, 70 + len(tabela_refeicao) * 35),
         )
 with aba_ranking:
     st.subheader(f"Maiores intervalos por motivo — {MESES[mes - 1]} de {ano}")
