@@ -805,7 +805,7 @@ with st.sidebar.container():
         '<div class="gg-sidebar-sub">Ajuste o período e o recorte de equipes</div>',
         unsafe_allow_html=True,
     )
-    if st.button("🔄 Atualizar dados", type="primary", use_container_width=True):
+    if st.button("Atualizar dados", type="primary", use_container_width=True):
         carregar_turnos.clear()
         st.rerun()
 
@@ -902,12 +902,12 @@ colunas = [
     aba_ranking, aba_resumo,
 ) = st.tabs(
     [
-        "📋 Turnos", "🗓️ Mapa mensal", "⏱️ Horas trabalhadas", "☕ Intervalos",
-        "🍽️ Refeição", "🏆 Ranking", "📈 Resumo diário",
+        " Turnos", " Mapa mensal", " Horas trabalhadas", " Intervalos",
+        " Refeição", " Ranking", " Resumo diário",
     ]
 )
 with aba_turnos:
-    titulo_secao("📋", f"Turnos de {MESES[mes - 1]} de {ano}")
+    titulo_secao("", f"Turnos de {MESES[mes - 1]} de {ano}")
     st.dataframe(
         filtrado[colunas], hide_index=True, use_container_width=True, height=620,
         column_config={
@@ -952,7 +952,7 @@ with aba_mapa:
             height=min(800, 70 + len(mapa) * 35),
         )
 with aba_horas:
-    titulo_secao("⏱️", f"Horas trabalhadas — {MESES[mes - 1]} de {ano}")
+    titulo_secao("", f"Horas trabalhadas — {MESES[mes - 1]} de {ano}")
     legenda_chips([
         ("#7e22ce", "menos de 6 horas"),
         ("#dc2626", "de 6 horas até 07:59"),
@@ -982,7 +982,7 @@ with aba_horas:
         )
 with aba_intervalos:
     titulo_secao(
-        "☕", f"Tempo de intervalo — {MESES[mes - 1]} de {ano}",
+        "", f"Tempo de intervalo — {MESES[mes - 1]} de {ano}",
         "Soma dos intervalos oficiais registrados para a equipe no dia.",
     )
     legenda_chips([
@@ -1017,7 +1017,7 @@ with aba_intervalos:
         )
 with aba_refeicao:
     titulo_secao(
-        "🍽️", f"Intervalos de refeição — {MESES[mes - 1]} de {ano}",
+        "", f"Intervalos de refeição — {MESES[mes - 1]} de {ano}",
         "Soma somente os intervalos oficiais classificados como refeição para a equipe no dia.",
     )
     legenda_chips([
@@ -1054,7 +1054,7 @@ with aba_refeicao:
         )
 with aba_ranking:
     titulo_secao(
-        "🏆", f"Maiores intervalos por motivo — {MESES[mes - 1]} de {ano}",
+        "", f"Maiores intervalos por motivo — {MESES[mes - 1]} de {ano}",
         "Cada linha representa um intervalo oficial individual. Os valores não são somados por equipe nem por dia.",
     )
     if ranking_intervalos.empty:
@@ -1103,7 +1103,7 @@ with aba_ranking:
                 },
             )
             st.download_button(
-                f"⬇️ Baixar ranking de {titulo_categoria.lower()} em CSV",
+                f" Baixar ranking de {titulo_categoria.lower()} em CSV",
                 tabela_categoria[colunas_ranking].to_csv(
                     index=False, sep=";", decimal=","
                 ).encode("utf-8-sig"),
@@ -1114,7 +1114,7 @@ with aba_ranking:
                 key=f"baixar_ranking_{chave_categoria}",
             )
 with aba_resumo:
-    titulo_secao("📈", f"Resumo diário — {MESES[mes - 1]} de {ano}")
+    titulo_secao("", f"Resumo diário — {MESES[mes - 1]} de {ano}")
     if filtrado.empty:
         st.info("Nenhum turno encontrado para os filtros selecionados.")
     else:
