@@ -28,233 +28,11 @@ MESES = [
     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ]
 FUSO_GOIAS = ZoneInfo("America/Sao_Paulo")
+META_HORAS_PADRAO = 8.0
+META_HORAS_GOOH = 9.0
+META_HORAS_GOOH_DS = 8.0
 
 
-# =============================================================================
-# ESTILO / TEMA VISUAL (não altera nenhuma lógica ou matriz de dados abaixo)
-# =============================================================================
-def injetar_estilo():
-    st.markdown(
-        """
-        <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-        html, body, [class*="css"] {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        }
-
-        :root {
-            --gg-primary: #0f766e;
-            --gg-primary-dark: #0a4f4a;
-            --gg-accent: #0ea5e9;
-            --gg-bg: #f6f8fb;
-            --gg-card: #ffffff;
-            --gg-border: #e2e8f0;
-            --gg-text: #1e293b;
-            --gg-muted: #64748b;
-        }
-
-        .stApp {
-            background: var(--gg-bg);
-        }
-
-        /* Cabeçalho principal em faixa gradiente */
-        .gg-hero {
-            background: linear-gradient(120deg, var(--gg-primary-dark) 0%, var(--gg-primary) 55%, var(--gg-accent) 130%);
-            border-radius: 18px;
-            padding: 28px 32px;
-            margin-bottom: 22px;
-            box-shadow: 0 10px 30px -12px rgba(15, 118, 110, 0.45);
-        }
-        .gg-hero h1 {
-            color: #ffffff;
-            font-size: 1.9rem;
-            font-weight: 800;
-            margin: 0 0 4px 0;
-            letter-spacing: -0.02em;
-        }
-        .gg-hero p {
-            color: rgba(255,255,255,0.85);
-            margin: 0;
-            font-size: 0.95rem;
-        }
-        .gg-hero .gg-badge-update {
-            display: inline-block;
-            margin-top: 10px;
-            background: rgba(255,255,255,0.16);
-            color: #ffffff;
-            padding: 4px 12px;
-            border-radius: 999px;
-            font-size: 0.78rem;
-            font-weight: 600;
-            border: 1px solid rgba(255,255,255,0.25);
-        }
-
-        /* Cards de métricas */
-        div[data-testid="stMetric"] {
-            background: var(--gg-card);
-            border: 1px solid var(--gg-border);
-            border-radius: 14px;
-            padding: 14px 16px 10px 16px;
-            box-shadow: 0 2px 8px -4px rgba(15, 23, 42, 0.08);
-        }
-        div[data-testid="stMetric"] label {
-            color: var(--gg-muted) !important;
-            font-weight: 600 !important;
-            font-size: 0.8rem !important;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-        }
-        div[data-testid="stMetricValue"] {
-            color: var(--gg-text) !important;
-            font-weight: 800 !important;
-        }
-
-        /* Abas */
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 4px;
-            background: transparent;
-            padding: 0;
-            border-bottom: 1px solid var(--gg-border);
-        }
-        .stTabs [data-baseweb="tab"] {
-            border-radius: 0;
-            padding: 8px 14px;
-            font-weight: 600;
-            color: var(--gg-muted);
-            background: transparent !important;
-            border-bottom: 2px solid transparent;
-        }
-        .stTabs [data-baseweb="tab"]:hover {
-            color: var(--gg-primary);
-        }
-        .stTabs [aria-selected="true"] {
-            background: transparent !important;
-            color: var(--gg-primary) !important;
-            border-bottom: 2px solid var(--gg-primary) !important;
-        }
-        .stTabs [data-baseweb="tab-highlight"] {
-            background-color: transparent !important;
-        }
-        .stTabs [data-baseweb="tab-border"] {
-            display: none;
-        }
-
-        /* Cabeçalhos de seção */
-        .gg-section-title {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin: 4px 0 2px 0;
-        }
-        .gg-section-title h3 {
-            margin: 0;
-            font-weight: 700;
-            color: var(--gg-text);
-        }
-        .gg-section-sub {
-            color: var(--gg-muted);
-            font-size: 0.88rem;
-            margin: 0 0 14px 0;
-        }
-
-        /* Legenda em chips */
-        .gg-legend {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin: 6px 0 16px 0;
-        }
-        .gg-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 5px 11px;
-            border-radius: 999px;
-            font-size: 0.78rem;
-            font-weight: 600;
-            border: 1px solid rgba(0,0,0,0.06);
-        }
-        .gg-chip .gg-dot {
-            width: 9px;
-            height: 9px;
-            border-radius: 50%;
-            display: inline-block;
-            flex-shrink: 0;
-        }
-
-        /* Sidebar */
-        section[data-testid="stSidebar"] {
-            background: #ffffff;
-            border-right: 1px solid var(--gg-border);
-        }
-        section[data-testid="stSidebar"] .gg-sidebar-title {
-            font-weight: 800;
-            font-size: 1.05rem;
-            color: var(--gg-text);
-            margin-bottom: 2px;
-        }
-        section[data-testid="stSidebar"] .gg-sidebar-sub {
-            color: var(--gg-muted);
-            font-size: 0.8rem;
-            margin-bottom: 16px;
-        }
-
-        /* Botão primário */
-        button[kind="primary"] {
-            border-radius: 10px !important;
-            font-weight: 700 !important;
-        }
-
-        /* DataFrames com cantos arredondados */
-        div[data-testid="stDataFrame"] {
-            border-radius: 12px;
-            overflow: hidden;
-            border: 1px solid var(--gg-border);
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def cabecalho_hero(atualizado_em_texto):
-    st.markdown(
-        f"""
-        <div class="gg-hero">
-            <h1>📊 Acompanhamento de Turnos GO</h1>
-            <p>Abertura e fechamento reais das equipes de campo • dados atualizados automaticamente pelo bot</p>
-            {f'<div class="gg-badge-update">🕒 {atualizado_em_texto}</div>' if atualizado_em_texto else ''}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def titulo_secao(icone, titulo, subtitulo=None):
-    st.markdown(
-        f"""
-        <div class="gg-section-title"><h3>{icone} {titulo}</h3></div>
-        {f'<p class="gg-section-sub">{subtitulo}</p>' if subtitulo else ''}
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def legenda_chips(itens):
-    """itens: lista de tuplas (cor_hex, texto). Mesmo significado da legenda original,
-    só muda o formato visual (chips coloridos) — nenhuma cor de matriz é alterada."""
-    partes = "".join(
-        f'<span class="gg-chip" style="background:{cor}18; color:{cor};">'
-        f'<span class="gg-dot" style="background:{cor};"></span>{texto}</span>'
-        for cor, texto in itens
-    )
-    st.markdown(f'<div class="gg-legend">{partes}</div>', unsafe_allow_html=True)
-
-
-# =============================================================================
-# FUNÇÕES DE DADOS — sem nenhuma alteração de lógica ou de matriz
-# =============================================================================
 def normalizar_nome(valor):
     texto = unicodedata.normalize("NFKD", str(valor))
     texto = "".join(letra for letra in texto if not unicodedata.combining(letra))
@@ -794,20 +572,211 @@ def estilo_refeicao(valor):
     return estilos.get(str(valor), "")
 
 
-# =============================================================================
-# INTERFACE
-# =============================================================================
-injetar_estilo()
+def marcar_ds_estimado_gooh(dados):
+    """Marca no máximo um possível DS por semana para cada equipe GOOH.
 
-with st.sidebar.container():
-    st.markdown(
-        '<div class="gg-sidebar-title">⚙️ Filtros</div>'
-        '<div class="gg-sidebar-sub">Ajuste o período e o recorte de equipes</div>',
-        unsafe_allow_html=True,
+    A fonte ainda não possui uma coluna de escala/DS. Por isso, a estimativa usa a
+    abertura mais próxima das 09:00, dentro da janela de 08:30 a 10:30. A regra é
+    aplicada sobre todo o histórico carregado para não duplicar um DS na virada do mês.
+    """
+    resultado = pd.Series(False, index=dados.index, dtype=bool)
+    if dados.empty:
+        return resultado
+
+    inicio = pd.to_datetime(dados["INICIO_TURNO"], errors="coerce")
+    minutos_abertura = inicio.dt.hour * 60 + inicio.dt.minute
+    candidatos = dados[
+        dados["GRUPO"].eq("GOOH")
+        & inicio.notna()
+        & minutos_abertura.between(8 * 60 + 30, 10 * 60 + 30)
+    ].copy()
+    if candidatos.empty:
+        return resultado
+
+    inicio_candidatos = pd.to_datetime(candidatos["INICIO_TURNO"], errors="coerce")
+    calendario_iso = inicio_candidatos.dt.isocalendar()
+    candidatos["ANO_ISO"] = calendario_iso.year.astype(int)
+    candidatos["SEMANA_ISO"] = calendario_iso.week.astype(int)
+    candidatos["DISTANCIA_09H"] = (
+        inicio_candidatos.dt.hour * 60 + inicio_candidatos.dt.minute - 9 * 60
+    ).abs()
+    escolhidos = (
+        candidatos.sort_values(["DISTANCIA_09H", "INICIO_TURNO"])
+        .groupby(["PREFIXO", "ANO_ISO", "SEMANA_ISO"], sort=False)
+        .head(1)
+        .index
     )
-    if st.button("🔄 Atualizar dados", type="primary", use_container_width=True):
-        carregar_turnos.clear()
-        st.rerun()
+    resultado.loc[escolhidos] = True
+    return resultado
+
+
+def calcular_analise_mensal(dados, ano, mes, grupos, equipes_selecionadas):
+    """Calcula o percentual de jornadas abaixo da meta para cada equipe."""
+    universo = dados[dados["GRUPO"].isin(grupos)].copy()
+    if equipes_selecionadas:
+        universo = universo[universo["PREFIXO"].isin(equipes_selecionadas)]
+    universo = ocultar_desmobilizadas_sem_movimento(universo, ano, mes)
+    universo["DS_ESTIMADO"] = marcar_ds_estimado_gooh(dados).reindex(
+        universo.index, fill_value=False
+    )
+
+    datas = pd.to_datetime(universo["DATA"], errors="coerce")
+    jornadas = universo[
+        datas.dt.year.eq(ano)
+        & datas.dt.month.eq(mes)
+        & universo["FIM_TURNO"].notna()
+        & universo["DURACAO_HORAS"].notna()
+    ].copy()
+    if jornadas.empty:
+        return pd.DataFrame(), jornadas
+
+    jornadas["META_HORAS"] = META_HORAS_PADRAO
+    jornadas.loc[jornadas["GRUPO"].eq("GOOH"), "META_HORAS"] = META_HORAS_GOOH
+    jornadas.loc[
+        jornadas["GRUPO"].eq("GOOH") & jornadas["DS_ESTIMADO"], "META_HORAS"
+    ] = META_HORAS_GOOH_DS
+    jornadas["DEFICIT_HORAS"] = (
+        jornadas["META_HORAS"] - jornadas["DURACAO_HORAS"]
+    ).clip(lower=0)
+    jornadas["COM_DESVIO"] = jornadas["DEFICIT_HORAS"].gt(1 / 60)
+
+    ranking = (
+        jornadas.groupby(["GRUPO", "PREFIXO"], as_index=False)
+        .agg(
+            JORNADAS_ANALISADAS=("PREFIXO", "size"),
+            JORNADAS_COM_DESVIO=("COM_DESVIO", "sum"),
+            MEDIA_HORAS=("DURACAO_HORAS", "mean"),
+            DEFICIT_TOTAL_HORAS=("DEFICIT_HORAS", "sum"),
+            DIAS_DS_ESTIMADOS=("DS_ESTIMADO", "sum"),
+        )
+    )
+    ranking["PERCENTUAL_DESVIO"] = (
+        100 * ranking["JORNADAS_COM_DESVIO"] / ranking["JORNADAS_ANALISADAS"]
+    ).round(1)
+    ranking["MEDIA_HORAS"] = ranking["MEDIA_HORAS"].round(4)
+    ranking["DEFICIT_TOTAL_HORAS"] = ranking["DEFICIT_TOTAL_HORAS"].round(4)
+    ranking = ranking.sort_values(
+        ["GRUPO", "PERCENTUAL_DESVIO", "DEFICIT_TOTAL_HORAS", "PREFIXO"],
+        ascending=[True, False, False, True],
+    ).reset_index(drop=True)
+    return ranking, jornadas
+
+
+def montar_ocorrencias_mensais(jornadas, intervalos_individuais, ano, mes, grupos, equipes):
+    """Monta os destaques do mês com base em regras auditáveis."""
+    ocorrencias = []
+    for _, linha in jornadas[jornadas["COM_DESVIO"]].iterrows():
+        ocorrencias.append({
+            "GRUPO": linha["GRUPO"],
+            "EQUIPE": linha["PREFIXO"],
+            "DATA": linha["DATA"],
+            "OCORRENCIA": "Jornada abaixo da meta",
+            "DETALHE": (
+                f"Realizado {formatar_duracao(linha['DURACAO_HORAS'])}; "
+                f"meta {formatar_duracao(linha['META_HORAS'])}; "
+                f"déficit {formatar_duracao(linha['DEFICIT_HORAS'])}"
+                + (" (DS estimado)" if linha["DS_ESTIMADO"] else "")
+            ),
+            "SEVERIDADE_MIN": round(float(linha["DEFICIT_HORAS"]) * 60),
+        })
+
+    for _, linha in jornadas[jornadas["ABERTURAS_NO_DIA"].gt(1)].iterrows():
+        ocorrencias.append({
+            "GRUPO": linha["GRUPO"],
+            "EQUIPE": linha["PREFIXO"],
+            "DATA": linha["DATA"],
+            "OCORRENCIA": "Múltiplas aberturas no dia",
+            "DETALHE": f"{int(linha['ABERTURAS_NO_DIA'])} aberturas consolidadas em um turno",
+            "SEVERIDADE_MIN": int(linha["ABERTURAS_NO_DIA"]) * 10,
+        })
+
+    if not intervalos_individuais.empty:
+        intervalos = intervalos_individuais.copy()
+        inicio = pd.to_datetime(intervalos["INICIO_INTERVALO"], errors="coerce")
+        motivos = intervalos["MOTIVO_INTERVALO"].fillna("").map(normalizar_nome)
+        intervalos = intervalos[
+            inicio.dt.year.eq(ano)
+            & inicio.dt.month.eq(mes)
+            & intervalos["GRUPO"].isin(grupos)
+            & motivos.eq("REFEICAO")
+        ].copy()
+        if equipes:
+            intervalos = intervalos[intervalos["PREFIXO"].isin(equipes)]
+        if not intervalos.empty:
+            intervalos["DATA_REFEICAO"] = pd.to_datetime(
+                intervalos["INICIO_INTERVALO"]
+            ).dt.date
+            refeicoes = (
+                intervalos.groupby(["GRUPO", "PREFIXO", "DATA_REFEICAO"], as_index=False)
+                ["INTERVALO_HORAS"].sum()
+            )
+            for _, linha in refeicoes[refeicoes["INTERVALO_HORAS"].gt(1.25)].iterrows():
+                excesso = float(linha["INTERVALO_HORAS"]) - 1.25
+                ocorrencias.append({
+                    "GRUPO": linha["GRUPO"],
+                    "EQUIPE": linha["PREFIXO"],
+                    "DATA": linha["DATA_REFEICAO"],
+                    "OCORRENCIA": "Refeição acima de 01:15",
+                    "DETALHE": f"Total no dia: {formatar_duracao(linha['INTERVALO_HORAS'])}",
+                    "SEVERIDADE_MIN": round(excesso * 60),
+                })
+
+    if not ocorrencias:
+        return pd.DataFrame(columns=[
+            "GRUPO", "EQUIPE", "DATA", "OCORRENCIA", "DETALHE", "SEVERIDADE_MIN"
+        ])
+    return pd.DataFrame(ocorrencias).sort_values(
+        ["SEVERIDADE_MIN", "DATA"], ascending=[False, True]
+    ).reset_index(drop=True)
+
+
+def gerar_relatorio_mensal_texto(ranking, jornadas, ocorrencias, ano, mes):
+    total = len(jornadas)
+    desvios = int(jornadas["COM_DESVIO"].sum()) if total else 0
+    taxa = 100 * desvios / total if total else 0
+    linhas = [
+        f"RELATÓRIO MENSAL DE TURNOS — {MESES[mes - 1].upper()} DE {ano}",
+        "",
+        f"Jornadas encerradas analisadas: {total}",
+        f"Jornadas abaixo da meta: {desvios} ({taxa:.1f}%)",
+        (
+            "Critério: menos de 08:00 para GOOL/GOOC/GOOK; menos de 09:00 para "
+            "GOOH; no DS estimado da GOOH, menos de 08:00."
+        ),
+        "",
+        "EQUIPES COM MAIOR PERCENTUAL DE DESVIO POR GRUPO",
+    ]
+    for grupo in GRUPOS:
+        grupo_ranking = ranking[ranking["GRUPO"].eq(grupo)].head(5)
+        if grupo_ranking.empty:
+            continue
+        linhas.append(f"\n{grupo}")
+        for _, item in grupo_ranking.iterrows():
+            linhas.append(
+                f"- {item['PREFIXO']}: {item['PERCENTUAL_DESVIO']:.1f}% "
+                f"({int(item['JORNADAS_COM_DESVIO'])}/{int(item['JORNADAS_ANALISADAS'])} jornadas)"
+            )
+    linhas.extend(["", "PRINCIPAIS OCORRÊNCIAS"])
+    if ocorrencias.empty:
+        linhas.append("- Nenhuma ocorrência encontrada pelos critérios atuais.")
+    else:
+        for _, item in ocorrencias.head(20).iterrows():
+            data_item = pd.to_datetime(item["DATA"]).strftime("%d/%m/%Y")
+            linhas.append(
+                f"- {data_item} | {item['EQUIPE']} | {item['OCORRENCIA']} | {item['DETALHE']}"
+            )
+    linhas.extend([
+        "",
+        "Observação: o DS é estimado porque a fonte atual não possui uma coluna explícita de escala.",
+    ])
+    return "\n".join(linhas)
+
+
+st.title("Acompanhamento de Turnos GO")
+st.caption("Abertura e fechamento reais • dados atualizados pelo bot")
+if st.sidebar.button("Atualizar dados", type="primary", use_container_width=True):
+    carregar_turnos.clear()
+    st.rerun()
 
 try:
     with st.spinner("Lendo a planilha de turnos..."):
@@ -822,15 +791,12 @@ except Exception as erro:
     st.code(str(erro))
     st.stop()
 
-texto_atualizacao = ""
 if atualizado_em:
     try:
         atualizado = datetime.fromisoformat(atualizado_em).astimezone(FUSO_GOIAS)
-        texto_atualizacao = f"Última carga do bot: {atualizado:%d/%m/%Y %H:%M:%S}"
+        st.caption(f"Última carga do bot: {atualizado:%d/%m/%Y %H:%M:%S}")
     except ValueError:
-        texto_atualizacao = "Última carga do bot: " + atualizado_em
-
-cabecalho_hero(texto_atualizacao)
+        st.caption("Última carga do bot: " + atualizado_em)
 
 datas_validas = pd.to_datetime(dados["DATA"], errors="coerce").dropna()
 ano_padrao = int(datas_validas.dt.year.max()) if not datas_validas.empty else date.today().year
@@ -882,14 +848,19 @@ else:
         "MOTIVO_INTERVALO"
     ].map(normalizar_nome)
 
+ranking_mensal, jornadas_mensais = calcular_analise_mensal(
+    dados, ano, mes, grupos, equipes
+)
+ocorrencias_mensais = montar_ocorrencias_mensais(
+    jornadas_mensais, intervalos_individuais, ano, mes, grupos, equipes
+)
+
 metricas = st.columns(4)
 metricas[0].metric("Turnos consolidados", filtrado["HIST_TURMA_PLANTAO_ID"].nunique())
 metricas[1].metric("Equipes", filtrado["PREFIXO"].nunique())
 metricas[2].metric("Em andamento", int(filtrado["SITUACAO"].eq("EM ANDAMENTO").sum()))
 mediana = filtrado["DURACAO_HORAS"].median()
 metricas[3].metric("Duração mediana", "—" if pd.isna(mediana) else formatar_duracao(mediana))
-
-st.write("")
 
 colunas = [
     "DATA", "GRUPO", "PREFIXO", "INICIO_TURNO", "SAIDA_PREVISTA", "FIM_TURNO",
@@ -898,16 +869,151 @@ colunas = [
     "MOTIVOS_INTERVALO", "PARTICIPA_ESCALA", "OBSERVACAO",
 ]
 (
-    aba_turnos, aba_mapa, aba_horas, aba_intervalos, aba_refeicao,
-    aba_ranking, aba_resumo,
+    aba_analise, aba_ocorrencias, aba_turnos, aba_mapa, aba_horas,
+    aba_intervalos, aba_refeicao, aba_ranking, aba_resumo,
 ) = st.tabs(
     [
-        "Turnos", "Mapa mensal", "Horas trabalhadas", "Intervalos",
-        "Refeição", "Ranking", "Resumo diário",
+        "Análise mensal", "Ocorrências", "Turnos", "Mapa mensal",
+        "Horas trabalhadas", "Intervalos", "Intervalos de refeição",
+        "Ranking de intervalos", "Resumo diário",
     ]
 )
+with aba_analise:
+    st.subheader(f"Análise mensal — {MESES[mes - 1]} de {ano}")
+    st.caption(
+        "Percentual de desvio = jornadas encerradas abaixo da meta ÷ jornadas "
+        "encerradas analisadas. Metas: 08:00 para GOOL, GOOC e GOOK; 09:00 para "
+        "GOOH; 08:00 no DS estimado da GOOH."
+    )
+    if jornadas_mensais.empty:
+        st.info("Ainda não há jornadas encerradas para analisar neste período.")
+    else:
+        total_jornadas = len(jornadas_mensais)
+        total_desvios = int(jornadas_mensais["COM_DESVIO"].sum())
+        taxa_geral = 100 * total_desvios / total_jornadas
+        deficit_total = float(jornadas_mensais["DEFICIT_HORAS"].sum())
+        indicadores = st.columns(4)
+        indicadores[0].metric("Equipes analisadas", ranking_mensal["PREFIXO"].nunique())
+        indicadores[1].metric("Jornadas encerradas", total_jornadas)
+        indicadores[2].metric(
+            "Jornadas com desvio", f"{total_desvios} ({taxa_geral:.1f}%)"
+        )
+        indicadores[3].metric("Déficit acumulado", formatar_duracao(deficit_total))
+
+        st.markdown("#### Equipes mais ofensoras por prefixo")
+        for grupo in grupos:
+            ranking_grupo = ranking_mensal[
+                ranking_mensal["GRUPO"].eq(grupo)
+            ].copy()
+            if ranking_grupo.empty:
+                continue
+            with st.container(border=True):
+                st.markdown(f"### {grupo}")
+                for _, item in ranking_grupo.head(5).iterrows():
+                    coluna_equipe, coluna_barra, coluna_percentual = st.columns(
+                        [2.2, 6, 1.2], vertical_alignment="center"
+                    )
+                    coluna_equipe.markdown(f"**{item['PREFIXO']}**")
+                    percentual = float(item["PERCENTUAL_DESVIO"])
+                    coluna_barra.progress(
+                        min(100, max(0, round(percentual))),
+                        text=(
+                            f"{int(item['JORNADAS_COM_DESVIO'])} de "
+                            f"{int(item['JORNADAS_ANALISADAS'])} jornadas"
+                        ),
+                    )
+                    coluna_percentual.markdown(f"**{percentual:.1f}%**")
+
+                with st.expander(f"Ver ranking completo de {grupo}"):
+                    exibir = ranking_grupo.copy()
+                    exibir["MÉDIA"] = exibir["MEDIA_HORAS"].map(formatar_duracao)
+                    exibir["DÉFICIT TOTAL"] = exibir["DEFICIT_TOTAL_HORAS"].map(
+                        formatar_duracao
+                    )
+                    exibir["% DESVIO"] = exibir["PERCENTUAL_DESVIO"].map(
+                        lambda valor: f"{valor:.1f}%"
+                    )
+                    st.dataframe(
+                        exibir[[
+                            "PREFIXO", "% DESVIO", "JORNADAS_COM_DESVIO",
+                            "JORNADAS_ANALISADAS", "MÉDIA", "DÉFICIT TOTAL",
+                            "DIAS_DS_ESTIMADOS",
+                        ]],
+                        hide_index=True,
+                        use_container_width=True,
+                        column_config={
+                            "PREFIXO": "Equipe",
+                            "JORNADAS_COM_DESVIO": "Jornadas com desvio",
+                            "JORNADAS_ANALISADAS": "Jornadas analisadas",
+                            "DIAS_DS_ESTIMADOS": "DS estimados",
+                        },
+                    )
+
+        st.info(
+            "DS estimado: no máximo uma abertura GOOH por equipe/semana entre "
+            "08:30 e 10:30, escolhendo a mais próxima das 09:00. Quando a fonte "
+            "passar a informar o DS, esta estimativa poderá ser substituída pelo dado oficial."
+        )
+        relatorio_texto = gerar_relatorio_mensal_texto(
+            ranking_mensal, jornadas_mensais, ocorrencias_mensais, ano, mes
+        )
+        botoes_relatorio = st.columns(2)
+        botoes_relatorio[0].download_button(
+            "Baixar ranking mensal em CSV",
+            ranking_mensal.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
+            file_name=f"ranking_desvios_{ano}_{mes:02}.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+        botoes_relatorio[1].download_button(
+            "Baixar relatório mensal em TXT",
+            relatorio_texto.encode("utf-8-sig"),
+            file_name=f"relatorio_turnos_{ano}_{mes:02}.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+with aba_ocorrencias:
+    st.subheader(f"Principais ocorrências — {MESES[mes - 1]} de {ano}")
+    st.caption(
+        "Destaques calculados a partir de jornadas abaixo da meta, múltiplas "
+        "aberturas no mesmo dia e refeições acima de 01:15."
+    )
+    if ocorrencias_mensais.empty:
+        st.success("Nenhuma ocorrência foi encontrada pelos critérios atuais.")
+    else:
+        contagens = (
+            ocorrencias_mensais.groupby("OCORRENCIA").size().sort_values(ascending=False)
+        )
+        colunas_ocorrencias = st.columns(len(contagens))
+        for coluna, (nome, quantidade) in zip(colunas_ocorrencias, contagens.items()):
+            coluna.metric(nome, int(quantidade))
+
+        tabela_ocorrencias = ocorrencias_mensais.copy()
+        st.dataframe(
+            tabela_ocorrencias[
+                ["DATA", "GRUPO", "EQUIPE", "OCORRENCIA", "DETALHE"]
+            ],
+            hide_index=True,
+            use_container_width=True,
+            height=min(720, 70 + len(tabela_ocorrencias) * 35),
+            column_config={
+                "DATA": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+                "GRUPO": "Grupo",
+                "EQUIPE": "Equipe",
+                "OCORRENCIA": "Ocorrência",
+                "DETALHE": "Detalhe",
+            },
+        )
+        st.download_button(
+            "Baixar ocorrências em CSV",
+            tabela_ocorrencias.to_csv(index=False, sep=";", decimal=",").encode(
+                "utf-8-sig"
+            ),
+            file_name=f"ocorrencias_turnos_{ano}_{mes:02}.csv",
+            mime="text/csv",
+        )
 with aba_turnos:
-    titulo_secao("📋", f"Turnos de {MESES[mes - 1]} de {ano}")
+    st.subheader(f"Turnos de {MESES[mes - 1]} de {ano}")
     st.dataframe(
         filtrado[colunas], hide_index=True, use_container_width=True, height=620,
         column_config={
@@ -924,15 +1030,11 @@ with aba_turnos:
         },
     )
 with aba_mapa:
-    titulo_secao("🗓️", f"Presença das equipes — {MESES[mes - 1]} de {ano}")
-    legenda_chips([
-        ("#16a34a", "1 = abriu turno"),
-        ("#dc2626", "0 = não abriu em dia útil já transcorrido"),
-        ("#1e3a8a", "S = sábado"),
-        ("#334155", "D = domingo"),
-        ("#92400e", "F = feriado"),
-        ("#94a3b8", "vazio = dia futuro"),
-    ])
+    st.subheader(f"Presença das equipes — {MESES[mes - 1]} de {ano}")
+    st.caption(
+        "🟩 1 = abriu turno  •  🟥 0 = não abriu em dia útil já transcorrido  •  "
+        "S = sábado  •  D = domingo  •  F = feriado  •  vazio = dia futuro"
+    )
     mapa = montar_mapa_mensal(dados, ano, mes, grupos, equipes)
     if mapa.empty:
         st.info("Nenhuma equipe disponível para os filtros selecionados.")
@@ -952,18 +1054,13 @@ with aba_mapa:
             height=min(800, 70 + len(mapa) * 35),
         )
 with aba_horas:
-    titulo_secao("⏱️", f"Horas trabalhadas — {MESES[mes - 1]} de {ano}")
-    legenda_chips([
-        ("#7e22ce", "menos de 6 horas"),
-        ("#dc2626", "de 6 horas até 07:59"),
-        ("#16a34a", "8 horas ou mais"),
-        ("#facc15", "turno ainda em curso"),
-        ("#334155", "- = nenhuma hora"),
-        ("#1e3a8a", "S = sábado"),
-        ("#334155", "D = domingo"),
-        ("#92400e", "F = feriado"),
-        ("#94a3b8", "vazio = dia futuro"),
-    ])
+    st.subheader(f"Horas trabalhadas — {MESES[mes - 1]} de {ano}")
+    st.caption(
+        "🟪 menos de 6 horas  •  🟥 de 6 horas até 07:59  •  "
+        "🟩 8 horas ou mais  •  🟨 turno ainda em curso  •  "
+        "- = nenhuma hora  •  S = sábado  •  D = domingo  •  F = feriado  •  "
+        "vazio = dia futuro"
+    )
     tabela_horas = montar_tabela_horas(dados, ano, mes, grupos, equipes)
     if tabela_horas.empty:
         st.info("Nenhuma equipe disponível para os filtros selecionados.")
@@ -981,21 +1078,15 @@ with aba_horas:
             height=min(800, 70 + len(tabela_horas) * 35),
         )
 with aba_intervalos:
-    titulo_secao(
-        "☕", f"Tempo de intervalo — {MESES[mes - 1]} de {ano}",
-        "Soma dos intervalos oficiais registrados para a equipe no dia.",
+    st.subheader(f"Tempo de intervalo — {MESES[mes - 1]} de {ano}")
+    st.caption(
+        "Soma dos intervalos oficiais registrados para a equipe no dia.  "
+        "🟧 menos de 01:00  •  🟩 de 01:00 até 01:15  •  "
+        "🟥 de 01:16 até 02:30  •  "
+        "🟪 acima de 02:30  •  "
+        "branco = sem turno  •  "
+        "S = sábado  •  D = domingo  •  F = feriado  •  vazio = dia futuro"
     )
-    legenda_chips([
-        ("#fb923c", "menos de 01:00"),
-        ("#16a34a", "de 01:00 até 01:15"),
-        ("#dc2626", "de 01:16 até 02:30"),
-        ("#7e22ce", "acima de 02:30"),
-        ("#334155", "branco = sem turno"),
-        ("#1e3a8a", "S = sábado"),
-        ("#334155", "D = domingo"),
-        ("#92400e", "F = feriado"),
-        ("#94a3b8", "vazio = dia futuro"),
-    ])
     tabela_intervalos = montar_tabela_intervalos(dados, ano, mes, grupos, equipes)
     if tabela_intervalos.empty:
         st.info("Nenhuma equipe disponível para os filtros selecionados.")
@@ -1016,21 +1107,15 @@ with aba_intervalos:
             height=min(800, 70 + len(tabela_intervalos) * 35),
         )
 with aba_refeicao:
-    titulo_secao(
-        "🍽️", f"Intervalos de refeição — {MESES[mes - 1]} de {ano}",
-        "Soma somente os intervalos oficiais classificados como refeição para a equipe no dia.",
+    st.subheader(f"Intervalos de refeição — {MESES[mes - 1]} de {ano}")
+    st.caption(
+        "Soma somente os intervalos oficiais classificados como refeição para a "
+        "equipe no dia.  "
+        "🟧 abaixo de 00:59  •  🟩 de 00:59 até 01:15  •  "
+        "🟥 acima de 01:15 até 01:39  •  🟪 acima de 01:39  •  "
+        "branco = sem turno  •  "
+        "S = sábado  •  D = domingo  •  F = feriado  •  vazio = dia futuro"
     )
-    legenda_chips([
-        ("#fb923c", "abaixo de 00:59"),
-        ("#16a34a", "de 00:59 até 01:15"),
-        ("#dc2626", "acima de 01:15 até 01:39"),
-        ("#7e22ce", "acima de 01:39"),
-        ("#334155", "branco = sem turno"),
-        ("#1e3a8a", "S = sábado"),
-        ("#334155", "D = domingo"),
-        ("#92400e", "F = feriado"),
-        ("#94a3b8", "vazio = dia futuro"),
-    ])
     tabela_refeicao = montar_tabela_refeicao(
         dados, intervalos_individuais, ano, mes, grupos, equipes
     )
@@ -1053,9 +1138,10 @@ with aba_refeicao:
             height=min(800, 70 + len(tabela_refeicao) * 35),
         )
 with aba_ranking:
-    titulo_secao(
-        "🏆", f"Maiores intervalos por motivo — {MESES[mes - 1]} de {ano}",
-        "Cada linha representa um intervalo oficial individual. Os valores não são somados por equipe nem por dia.",
+    st.subheader(f"Maiores intervalos por motivo — {MESES[mes - 1]} de {ano}")
+    st.caption(
+        "Cada linha representa um intervalo oficial individual. Os valores não são "
+        "somados por equipe nem por dia. Cada tabela possui sua própria classificação."
     )
     if ranking_intervalos.empty:
         st.info(
@@ -1103,7 +1189,7 @@ with aba_ranking:
                 },
             )
             st.download_button(
-                f"⬇️ Baixar ranking de {titulo_categoria.lower()} em CSV",
+                f"Baixar ranking de {titulo_categoria.lower()} em CSV",
                 tabela_categoria[colunas_ranking].to_csv(
                     index=False, sep=";", decimal=","
                 ).encode("utf-8-sig"),
@@ -1114,7 +1200,6 @@ with aba_ranking:
                 key=f"baixar_ranking_{chave_categoria}",
             )
 with aba_resumo:
-    titulo_secao("📈", f"Resumo diário — {MESES[mes - 1]} de {ano}")
     if filtrado.empty:
         st.info("Nenhum turno encontrado para os filtros selecionados.")
     else:
@@ -1127,9 +1212,8 @@ with aba_resumo:
         if grupos:
             st.line_chart(resumo[grupos])
 
-st.write("")
 st.download_button(
-    "⬇️ Baixar tabela filtrada em CSV",
+    "Baixar tabela filtrada em CSV",
     filtrado[colunas].to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
     file_name=f"acompanhamento_turnos_{ano}_{mes:02}.csv",
     mime="text/csv",
