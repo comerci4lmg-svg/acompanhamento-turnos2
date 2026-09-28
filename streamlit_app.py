@@ -1058,12 +1058,34 @@ def montar_painel_tempos(dados, intervalos_individuais, ano, mes, grupos, equipe
         resumo[list(agregacoes)] = resumo[list(agregacoes)].fillna(0)
 
     resumo["PRIORIDADE"] = 0
+    resumo["PESO_ALERTA"] = 0.0
     resumo["ALERTAS"] = ""
-    if not intervalos_mes.empty:
-        for indice, equipe_linha in resumo.iterrows():
+    for indice, equipe_linha in resumo.iterrows():
+        turnos_equipe = turnos_mes[
+            turnos_mes["PREFIXO"].eq(equipe_linha["PREFIXO"])
+        ]
+        dias_criticos = turnos_equipe[
+            turnos_equipe["DURACAO_HORAS"].notna()
+            & turnos_equipe["TRABALHO_HORAS"].lt(4.5)
+        ]
+        menor_trabalho = (
+            float(dias_criticos["TRABALHO_HORAS"].min())
+            if not dias_criticos.empty else None
+        )
+        deficit_critico_minutos = (
+            round((4.5 - menor_trabalho) * 60)
+            if menor_trabalho is not None else 0
+        )
+
+        if intervalos_mes.empty:
+            intervalos_equipe = pd.DataFrame()
+        else:
             intervalos_equipe = intervalos_mes[
                 intervalos_mes["PREFIXO"].eq(equipe_linha["PREFIXO"])
             ]
+        if intervalos_equipe.empty:
+            manutencao_90 = manutencao_60 = refeicao_75 = retorno_90 = 0
+        else:
             manutencoes = intervalos_equipe[
                 intervalos_equipe["TIPO_PAINEL"].eq("MANUTENCAO")
             ]
@@ -1077,26 +1099,42 @@ def montar_painel_tempos(dados, intervalos_individuais, ano, mes, grupos, equipe
             manutencao_60 = int(manutencoes["INTERVALO_HORAS"].ge(1.0).sum())
             refeicao_75 = int(refeicoes["INTERVALO_HORAS"].gt(1.25).sum())
             retorno_90 = int(retornos["INTERVALO_HORAS"].gt(1.5).sum())
-            alertas = []
-            prioridade = 0
-            if manutencao_90:
-                prioridade = 1
-                alertas.append(f"{manutencao_90} manutenção(ões) acima de 01:30")
-            if manutencao_60 > 1:
-                prioridade = 1
-                alertas.append(f"{manutencao_60} manutenções de 01:00 ou mais")
-            if refeicao_75 > 2:
-                prioridade = prioridade or 2
-                alertas.append(f"{refeicao_75} refeições acima de 01:15")
-            if retorno_90:
-                prioridade = prioridade or 3
-                alertas.append(f"{retorno_90} retorno(s) à base acima de 01:30")
-            resumo.at[indice, "PRIORIDADE"] = prioridade
-            resumo.at[indice, "ALERTAS"] = " · ".join(alertas)
+        alertas = []
+        prioridade = 0
+        peso_alerta = 0.0
+        if manutencao_90:
+            prioridade = 1
+            peso_alerta = max(peso_alerta, 300 + manutencao_90)
+            alertas.append(f"{manutencao_90} manutenção(ões) acima de 01:30")
+        if manutencao_60 > 1:
+            prioridade = 1
+            peso_alerta = max(peso_alerta, 300 + manutencao_60)
+            alertas.append(f"{manutencao_60} manutenções de 01:00 ou mais")
+        if refeicao_75 > 2:
+            prioridade = prioridade or 2
+            peso_alerta = max(peso_alerta, 200 + refeicao_75)
+            alertas.append(f"{refeicao_75} refeições acima de 01:15")
+        if retorno_90:
+            prioridade = prioridade or 3
+            peso_alerta = max(peso_alerta, 100 + retorno_90)
+            alertas.append(f"{retorno_90} retorno(s) à base acima de 01:30")
+        if not dias_criticos.empty:
+            prioridade = 4
+            # A prioridade 4 supera as demais. Quanto menor o tempo líquido,
+            # maior o peso dentro desse nível crítico.
+            peso_alerta = 400 + deficit_critico_minutos + len(dias_criticos)
+            alertas.insert(
+                0,
+                f"{len(dias_criticos)} dia(s) com trabalho abaixo de 04:30; "
+                f"menor tempo {formatar_duracao(menor_trabalho)}",
+            )
+        resumo.at[indice, "PRIORIDADE"] = prioridade
+        resumo.at[indice, "PESO_ALERTA"] = peso_alerta
+        resumo.at[indice, "ALERTAS"] = " · ".join(alertas)
 
     resumo = resumo.sort_values(
-        ["GRUPO", "TOTAL_INTERVALOS_HORAS", "PREFIXO"],
-        ascending=[True, False, True],
+        ["GRUPO", "TOTAL_INTERVALOS_HORAS", "PESO_ALERTA", "PREFIXO"],
+        ascending=[True, False, False, True],
     ).reset_index(drop=True)
     return resumo, turnos_mes.sort_values(["PREFIXO", "DATA"]), intervalos_mes
 
@@ -1359,6 +1397,21 @@ with aba_analise:
             mime="text/csv",
         )
 with aba_turnos:
+    st.subheader(f"Turnos de {MESES[mes - 1]} de {ano}")
+    st.dataframe(
+        filtrado[colunas], hide_index=True, use_container_width=True, height=620,
+        column_config={
+            "DATA": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+            "INICIO_TURNO": st.column_config.DatetimeColumn("Abertura", format="DD/MM/YYYY HH:mm"),
+            "SAIDA_PREVISTA": st.column_config.DatetimeColumn("Saída prevista", format="DD/MM/YYYY HH:mm"),
+            "FIM_TURNO": st.column_config.DatetimeColumn("Fechamento", format="DD/MM/YYYY HH:mm"),
+            "ABERTURAS_NO_DIA": st.column_config.NumberColumn("Aberturas no dia", format="%d"),
+            "PERMANENCIA": st.column_config.TextColumn("Permanência total"),
+            "INTERVALO": st.column_config.TextColumn("Intervalo"),
+            "DURACAO": st.column_config.TextColumn("Tempo trabalhado"),
+            "MOTIVOS_INTERVALO": st.column_config.TextColumn("Motivo do intervalo"),
+            "DIFERENCA_FECHAMENTO_MIN": st.column_config.NumberColumn("Diferença fechamento (min)", format="%d"),
+        },
     st.subheader(f"Composição dos turnos — {MESES[mes - 1]} de {ano}")
     st.caption(
         "Todas as equipes ativas aparecem dentro do respectivo prefixo, ordenadas "
@@ -1385,7 +1438,8 @@ with aba_turnos:
         .prioridade {display:inline-block;padding:2px 7px;border-radius:12px;color:white;
             font-size:.72rem;font-weight:700;margin-top:4px}
         .prioridade-1 {background:#991b1b}.prioridade-2 {background:#c2410c}
-        .prioridade-3 {background:#a16207}.sem-prioridade {background:#64748b}
+        .prioridade-3 {background:#a16207}.prioridade-4 {background:#581c87}
+        .sem-prioridade {background:#64748b}
         .dia-linha {display:grid;grid-template-columns:120px minmax(420px,1fr) 120px;
             gap:14px;align-items:center;padding:8px 0;border-bottom:1px solid #e2e8f0}
         .dia-data {font-weight:700;color:#334155}.dia-total {font-size:.82rem;color:#334155}
@@ -1405,6 +1459,9 @@ with aba_turnos:
     with st.expander("Como funcionam os alertas de prioridade?"):
         st.markdown(
             """
+            - **Prioridade 4 — crítica:** tempo trabalhando abaixo de 04:30 em pelo
+              menos um dia encerrado, depois de descontar todos os intervalos oficiais.
+              Ela tem peso superior à Prioridade 1; quanto menor o tempo, maior o peso.
             - **Prioridade 1:** ao menos uma manutenção acima de 01:30, ou mais de
               uma manutenção de 01:00 ou mais no mês.
             - **Prioridade 2:** refeição acima de 01:15 em mais de dois dias no mês.
