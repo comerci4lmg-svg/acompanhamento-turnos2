@@ -942,6 +942,201 @@ def gerar_relatorio_equipe_excel(dados, intervalos_individuais, equipe, ano, mes
     return saida.getvalue()
 
 
+def montar_painel_tempos(dados, intervalos_individuais, ano, mes, grupos, equipes):
+    """Compõe trabalho líquido e intervalos por equipe/mês e por equipe/dia."""
+    universo = dados[dados["GRUPO"].isin(grupos)].copy()
+    if equipes:
+        universo = universo[universo["PREFIXO"].isin(equipes)]
+    universo = ocultar_desmobilizadas_sem_movimento(universo, ano, mes)
+    equipes_ativas = universo[["GRUPO", "PREFIXO"]].drop_duplicates()
+
+    datas_turnos = pd.to_datetime(universo["DATA"], errors="coerce")
+    turnos_mes = universo[
+        datas_turnos.dt.year.eq(ano) & datas_turnos.dt.month.eq(mes)
+    ].copy()
+    colunas_tempos = [
+        "REFEICAO_HORAS", "MANUTENCAO_HORAS", "RETORNO_BASE_HORAS",
+        "OUTROS_INTERVALOS_HORAS", "TOTAL_INTERVALOS_HORAS",
+    ]
+    for coluna in colunas_tempos:
+        turnos_mes[coluna] = 0.0
+
+    intervalos_mes = pd.DataFrame()
+    if not intervalos_individuais.empty:
+        intervalos_mes = intervalos_individuais[
+            intervalos_individuais["GRUPO"].isin(grupos)
+        ].copy()
+        if equipes:
+            intervalos_mes = intervalos_mes[
+                intervalos_mes["PREFIXO"].isin(equipes)
+            ]
+        inicio_intervalo = pd.to_datetime(
+            intervalos_mes["INICIO_INTERVALO"], errors="coerce"
+        )
+        intervalos_mes = intervalos_mes[
+            inicio_intervalo.dt.year.eq(ano) & inicio_intervalo.dt.month.eq(mes)
+        ].copy()
+        if not intervalos_mes.empty:
+            intervalos_mes["DATA"] = pd.to_datetime(
+                intervalos_mes["INICIO_INTERVALO"], errors="coerce"
+            ).dt.date
+            intervalos_mes["CATEGORIA"] = intervalos_mes[
+                "MOTIVO_INTERVALO"
+            ].fillna("").map(normalizar_nome)
+            intervalos_mes["TIPO_PAINEL"] = "OUTROS"
+            intervalos_mes.loc[
+                intervalos_mes["CATEGORIA"].eq("REFEICAO"), "TIPO_PAINEL"
+            ] = "REFEICAO"
+            intervalos_mes.loc[
+                intervalos_mes["CATEGORIA"].str.contains("MANUTENCAO", na=False),
+                "TIPO_PAINEL",
+            ] = "MANUTENCAO"
+            intervalos_mes.loc[
+                intervalos_mes["CATEGORIA"].str.contains(
+                    "RETORNO.*BASE", regex=True, na=False
+                ),
+                "TIPO_PAINEL",
+            ] = "RETORNO_BASE"
+            por_tipo = intervalos_mes.pivot_table(
+                index=["PREFIXO", "DATA"], columns="TIPO_PAINEL",
+                values="INTERVALO_HORAS", aggfunc="sum", fill_value=0,
+            )
+            por_tipo = por_tipo.rename(columns={
+                "REFEICAO": "REFEICAO_HORAS",
+                "MANUTENCAO": "MANUTENCAO_HORAS",
+                "RETORNO_BASE": "RETORNO_BASE_HORAS",
+                "OUTROS": "OUTROS_INTERVALOS_HORAS",
+            }).reset_index()
+            turnos_mes = turnos_mes.merge(
+                por_tipo, on=["PREFIXO", "DATA"], how="left", suffixes=("", "_CALC")
+            )
+            for coluna in colunas_tempos[:-1]:
+                calculada = f"{coluna}_CALC"
+                if calculada in turnos_mes.columns:
+                    turnos_mes[coluna] = turnos_mes[calculada].fillna(0)
+                    turnos_mes = turnos_mes.drop(columns=calculada)
+
+    categorias = colunas_tempos[:-1]
+    total_categorizado = turnos_mes[categorias].sum(axis=1)
+    if "INTERVALO_HORAS" in turnos_mes.columns:
+        total_oficial = pd.to_numeric(
+            turnos_mes["INTERVALO_HORAS"], errors="coerce"
+        ).fillna(0)
+        residual = (total_oficial - total_categorizado).clip(lower=0)
+        turnos_mes["OUTROS_INTERVALOS_HORAS"] += residual
+        turnos_mes["TOTAL_INTERVALOS_HORAS"] = total_oficial.combine(
+            turnos_mes[categorias].sum(axis=1), max
+        )
+    else:
+        turnos_mes["TOTAL_INTERVALOS_HORAS"] = total_categorizado
+    # Tempo em atividade é usado somente neste painel de composição. A aba de horas
+    # trabalhadas continua mostrando a jornada completa, sem desconto de intervalos.
+    turnos_mes["TRABALHO_HORAS"] = (
+        turnos_mes["DURACAO_HORAS"].fillna(0)
+        - turnos_mes["TOTAL_INTERVALOS_HORAS"]
+    ).clip(lower=0)
+
+    agregacoes = {
+        "TRABALHO_HORAS": "sum",
+        "REFEICAO_HORAS": "sum",
+        "MANUTENCAO_HORAS": "sum",
+        "RETORNO_BASE_HORAS": "sum",
+        "OUTROS_INTERVALOS_HORAS": "sum",
+        "TOTAL_INTERVALOS_HORAS": "sum",
+    }
+    if turnos_mes.empty:
+        resumo = equipes_ativas.copy()
+        for coluna in agregacoes:
+            resumo[coluna] = 0.0
+    else:
+        resumo_calculado = turnos_mes.groupby(
+            ["GRUPO", "PREFIXO"], as_index=False
+        ).agg(agregacoes)
+        resumo = equipes_ativas.merge(
+            resumo_calculado, on=["GRUPO", "PREFIXO"], how="left"
+        )
+        resumo[list(agregacoes)] = resumo[list(agregacoes)].fillna(0)
+
+    resumo["PRIORIDADE"] = 0
+    resumo["ALERTAS"] = ""
+    if not intervalos_mes.empty:
+        for indice, equipe_linha in resumo.iterrows():
+            intervalos_equipe = intervalos_mes[
+                intervalos_mes["PREFIXO"].eq(equipe_linha["PREFIXO"])
+            ]
+            manutencoes = intervalos_equipe[
+                intervalos_equipe["TIPO_PAINEL"].eq("MANUTENCAO")
+            ]
+            refeicoes = intervalos_equipe[
+                intervalos_equipe["TIPO_PAINEL"].eq("REFEICAO")
+            ]
+            retornos = intervalos_equipe[
+                intervalos_equipe["TIPO_PAINEL"].eq("RETORNO_BASE")
+            ]
+            manutencao_90 = int(manutencoes["INTERVALO_HORAS"].gt(1.5).sum())
+            manutencao_60 = int(manutencoes["INTERVALO_HORAS"].ge(1.0).sum())
+            refeicao_75 = int(refeicoes["INTERVALO_HORAS"].gt(1.25).sum())
+            retorno_90 = int(retornos["INTERVALO_HORAS"].gt(1.5).sum())
+            alertas = []
+            prioridade = 0
+            if manutencao_90:
+                prioridade = 1
+                alertas.append(f"{manutencao_90} manutenção(ões) acima de 01:30")
+            if manutencao_60 > 1:
+                prioridade = 1
+                alertas.append(f"{manutencao_60} manutenções de 01:00 ou mais")
+            if refeicao_75 > 2:
+                prioridade = prioridade or 2
+                alertas.append(f"{refeicao_75} refeições acima de 01:15")
+            if retorno_90:
+                prioridade = prioridade or 3
+                alertas.append(f"{retorno_90} retorno(s) à base acima de 01:30")
+            resumo.at[indice, "PRIORIDADE"] = prioridade
+            resumo.at[indice, "ALERTAS"] = " · ".join(alertas)
+
+    resumo = resumo.sort_values(
+        ["GRUPO", "TOTAL_INTERVALOS_HORAS", "PREFIXO"],
+        ascending=[True, False, True],
+    ).reset_index(drop=True)
+    return resumo, turnos_mes.sort_values(["PREFIXO", "DATA"]), intervalos_mes
+
+
+def html_barra_tempos(trabalho, refeicao, manutencao, retorno, outros=0):
+    """Renderiza uma barra horizontal empilhada com valores auditáveis."""
+    componentes = [
+        ("Trabalhando", float(trabalho or 0), "#16a34a", "#ffffff"),
+        ("Refeição", float(refeicao or 0), "#2563eb", "#ffffff"),
+        ("Manutenção", float(manutencao or 0), "#dc2626", "#ffffff"),
+        ("Retorno à base", float(retorno or 0), "#eab308", "#422006"),
+        ("Outros intervalos", float(outros or 0), "#94a3b8", "#0f172a"),
+    ]
+    total = sum(valor for _, valor, _, _ in componentes)
+    if total <= 0:
+        return (
+            '<div class="tempo-barra tempo-vazia"></div>'
+            '<div class="tempo-valores">Sem turno registrado</div>'
+        )
+    segmentos = []
+    valores = []
+    for nome, valor, cor, cor_texto in componentes:
+        if valor <= 0:
+            continue
+        largura = 100 * valor / total
+        segmentos.append(
+            f'<div class="tempo-segmento" style="width:{largura:.4f}%;'
+            f'background:{cor};color:{cor_texto}" title="{nome}: '
+            f'{formatar_duracao(valor)}"></div>'
+        )
+        valores.append(
+            f'<span><i style="background:{cor}"></i>{nome} '
+            f'<strong>{formatar_duracao(valor)}</strong></span>'
+        )
+    return (
+        '<div class="tempo-barra">' + "".join(segmentos) + '</div>'
+        '<div class="tempo-valores">' + "".join(valores) + '</div>'
+    )
+
+
 st.title("Acompanhamento de Turnos GO")
 st.caption("Abertura e fechamento reais • dados atualizados pelo bot")
 if st.sidebar.button("Atualizar dados", type="primary", use_container_width=True):
@@ -1179,7 +1374,157 @@ with aba_turnos:
             "MOTIVOS_INTERVALO": st.column_config.TextColumn("Motivo do intervalo"),
             "DIFERENCA_FECHAMENTO_MIN": st.column_config.NumberColumn("Diferença fechamento (min)", format="%d"),
         },
+    st.subheader(f"Composição dos turnos — {MESES[mes - 1]} de {ano}")
+    st.caption(
+        "Todas as equipes ativas aparecem dentro do respectivo prefixo, ordenadas "
+        "do maior para o menor total de intervalos. Neste painel, “trabalhando” é a "
+        "duração da jornada menos os intervalos oficiais; essa composição não altera "
+        "a regra da aba Horas trabalhadas."
     )
+    st.markdown(
+        """
+        <style>
+        .tempo-barra {height:18px;background:#e2e8f0;border-radius:6px;overflow:hidden;
+            display:flex;width:100%;box-shadow:inset 0 0 0 1px #cbd5e1;margin-top:4px}
+        .tempo-segmento {height:18px;min-width:0}
+        .tempo-vazia {background:#f8fafc}
+        .tempo-valores {display:flex;gap:12px;flex-wrap:wrap;font-size:.72rem;
+            color:#475569;margin-top:5px;margin-bottom:3px}
+        .tempo-valores span {white-space:nowrap}
+        .tempo-valores i {display:inline-block;width:9px;height:9px;border-radius:2px;
+            margin-right:4px}
+        .tempo-legenda {display:flex;gap:16px;flex-wrap:wrap;margin:8px 0 14px 0;
+            color:#334155;font-size:.86rem}
+        .tempo-legenda span {display:inline-flex;align-items:center;gap:5px}
+        .tempo-legenda i {width:12px;height:12px;border-radius:3px;display:inline-block}
+        .prioridade {display:inline-block;padding:2px 7px;border-radius:12px;color:white;
+            font-size:.72rem;font-weight:700;margin-top:4px}
+        .prioridade-1 {background:#991b1b}.prioridade-2 {background:#c2410c}
+        .prioridade-3 {background:#a16207}.sem-prioridade {background:#64748b}
+        .dia-linha {display:grid;grid-template-columns:120px minmax(420px,1fr) 120px;
+            gap:14px;align-items:center;padding:8px 0;border-bottom:1px solid #e2e8f0}
+        .dia-data {font-weight:700;color:#334155}.dia-total {font-size:.82rem;color:#334155}
+        @media (max-width:900px) {.dia-linha {grid-template-columns:100px 1fr}
+            .dia-total {grid-column:2}}
+        </style>
+        <div class="tempo-legenda">
+          <span><i style="background:#16a34a"></i>Trabalhando</span>
+          <span><i style="background:#2563eb"></i>Refeição</span>
+          <span><i style="background:#dc2626"></i>Manutenção</span>
+          <span><i style="background:#eab308"></i>Retorno à base</span>
+          <span><i style="background:#94a3b8"></i>Outros intervalos</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.expander("Como funcionam os alertas de prioridade?"):
+        st.markdown(
+            """
+            - **Prioridade 1:** ao menos uma manutenção acima de 01:30, ou mais de
+              uma manutenção de 01:00 ou mais no mês.
+            - **Prioridade 2:** refeição acima de 01:15 em mais de dois dias no mês.
+            - **Prioridade 3:** ao menos um retorno à base acima de 01:30.
+
+            A ordem das equipes continua sendo definida pelo **total de intervalos**;
+            a prioridade serve para destacar o tipo de ocorrência.
+            """
+        )
+
+    painel_resumo, painel_dias, _ = montar_painel_tempos(
+        dados, intervalos_individuais, ano, mes, grupos, equipes
+    )
+    if painel_resumo.empty:
+        st.info("Nenhuma equipe disponível para os filtros selecionados.")
+    else:
+        quantidade_dias = calendar.monthrange(ano, mes)[1]
+        hoje = datetime.now(FUSO_GOIAS).date()
+        feriados = feriados_brasil(ano)
+        for grupo in grupos:
+            equipes_grupo = painel_resumo[painel_resumo["GRUPO"].eq(grupo)]
+            if equipes_grupo.empty:
+                continue
+            with st.container(border=True):
+                st.markdown(f"### {grupo}")
+                for posicao, (_, item) in enumerate(equipes_grupo.iterrows(), 1):
+                    coluna_equipe, coluna_barra, coluna_total = st.columns(
+                        [2.0, 7.2, 1.8], vertical_alignment="center"
+                    )
+                    prioridade = int(item["PRIORIDADE"])
+                    if prioridade:
+                        selo = (
+                            f'<span class="prioridade prioridade-{prioridade}">'
+                            f'Prioridade {prioridade}</span>'
+                        )
+                    else:
+                        selo = '<span class="prioridade sem-prioridade">Sem alerta</span>'
+                    coluna_equipe.markdown(
+                        f"**{posicao}. {item['PREFIXO']}**<br>{selo}",
+                        unsafe_allow_html=True,
+                    )
+                    coluna_barra.markdown(
+                        html_barra_tempos(
+                            item["TRABALHO_HORAS"], item["REFEICAO_HORAS"],
+                            item["MANUTENCAO_HORAS"], item["RETORNO_BASE_HORAS"],
+                            item["OUTROS_INTERVALOS_HORAS"],
+                        ),
+                        unsafe_allow_html=True,
+                    )
+                    coluna_total.markdown(
+                        "**Total de intervalos**<br>"
+                        f"{formatar_duracao(item['TOTAL_INTERVALOS_HORAS'])}",
+                        unsafe_allow_html=True,
+                    )
+                    if item["ALERTAS"]:
+                        st.caption(f"Critério acionado — {item['PREFIXO']}: {item['ALERTAS']}")
+
+                    with st.expander(f"Ver todos os dias de {item['PREFIXO']}"):
+                        dias_equipe = painel_dias[
+                            painel_dias["PREFIXO"].eq(item["PREFIXO"])
+                        ]
+                        linhas_dias_html = []
+                        for dia in range(1, quantidade_dias + 1):
+                            data_dia = date(ano, mes, dia)
+                            registro = dias_equipe[dias_equipe["DATA"].eq(data_dia)]
+                            if registro.empty:
+                                if data_dia > hoje:
+                                    situacao_dia = "Dia futuro"
+                                elif data_dia in feriados:
+                                    situacao_dia = "Feriado"
+                                elif data_dia.weekday() == 5:
+                                    situacao_dia = "Sábado"
+                                elif data_dia.weekday() == 6:
+                                    situacao_dia = "Domingo"
+                                else:
+                                    situacao_dia = "Sem turno"
+                                barra_dia = (
+                                    '<div class="tempo-barra tempo-vazia"></div>'
+                                    f'<div class="tempo-valores">{situacao_dia}</div>'
+                                )
+                                total_dia = "—"
+                            else:
+                                dia_item = registro.iloc[0]
+                                barra_dia = html_barra_tempos(
+                                    dia_item["TRABALHO_HORAS"],
+                                    dia_item["REFEICAO_HORAS"],
+                                    dia_item["MANUTENCAO_HORAS"],
+                                    dia_item["RETORNO_BASE_HORAS"],
+                                    dia_item["OUTROS_INTERVALOS_HORAS"],
+                                )
+                                total_dia = formatar_duracao(
+                                    dia_item["TOTAL_INTERVALOS_HORAS"]
+                                )
+                            linhas_dias_html.append(
+                                '<div class="dia-linha">'
+                                f'<div class="dia-data">{data_dia:%d/%m/%Y}</div>'
+                                f'<div>{barra_dia}</div>'
+                                f'<div class="dia-total"><strong>Intervalos</strong><br>{total_dia}</div>'
+                                '</div>'
+                            )
+                        st.markdown(
+                            '<div class="dia-lista">' + "".join(linhas_dias_html) + '</div>',
+                            unsafe_allow_html=True,
+                        )
+                    st.divider()
 with aba_mapa:
     st.subheader(f"Presença das equipes — {MESES[mes - 1]} de {ano}")
     st.caption(
