@@ -1359,21 +1359,6 @@ with aba_analise:
             mime="text/csv",
         )
 with aba_turnos:
-    st.subheader(f"Turnos de {MESES[mes - 1]} de {ano}")
-    st.dataframe(
-        filtrado[colunas], hide_index=True, use_container_width=True, height=620,
-        column_config={
-            "DATA": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-            "INICIO_TURNO": st.column_config.DatetimeColumn("Abertura", format="DD/MM/YYYY HH:mm"),
-            "SAIDA_PREVISTA": st.column_config.DatetimeColumn("Saída prevista", format="DD/MM/YYYY HH:mm"),
-            "FIM_TURNO": st.column_config.DatetimeColumn("Fechamento", format="DD/MM/YYYY HH:mm"),
-            "ABERTURAS_NO_DIA": st.column_config.NumberColumn("Aberturas no dia", format="%d"),
-            "PERMANENCIA": st.column_config.TextColumn("Permanência total"),
-            "INTERVALO": st.column_config.TextColumn("Intervalo"),
-            "DURACAO": st.column_config.TextColumn("Tempo trabalhado"),
-            "MOTIVOS_INTERVALO": st.column_config.TextColumn("Motivo do intervalo"),
-            "DIFERENCA_FECHAMENTO_MIN": st.column_config.NumberColumn("Diferença fechamento (min)", format="%d"),
-        },
     st.subheader(f"Composição dos turnos — {MESES[mes - 1]} de {ano}")
     st.caption(
         "Todas as equipes ativas aparecem dentro do respectivo prefixo, ordenadas "
