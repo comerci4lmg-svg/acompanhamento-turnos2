@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import calendar
 from datetime import date, datetime, timedelta
+from io import BytesIO
 import re
 import unicodedata
 from zoneinfo import ZoneInfo
@@ -9,6 +10,10 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import requests
 import streamlit as st
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 
 st.set_page_config(page_title="Acompanhamento de Turnos GO", page_icon="📊", layout="wide")
@@ -662,114 +667,279 @@ def calcular_analise_mensal(dados, ano, mes, grupos, equipes_selecionadas):
     return ranking, jornadas
 
 
-def montar_ocorrencias_mensais(jornadas, intervalos_individuais, ano, mes, grupos, equipes):
-    """Monta os destaques do mês com base em regras auditáveis."""
-    ocorrencias = []
-    for _, linha in jornadas[jornadas["COM_DESVIO"]].iterrows():
-        ocorrencias.append({
-            "GRUPO": linha["GRUPO"],
-            "EQUIPE": linha["PREFIXO"],
-            "DATA": linha["DATA"],
-            "OCORRENCIA": "Jornada abaixo da meta",
-            "DETALHE": (
-                f"Realizado {formatar_duracao(linha['DURACAO_HORAS'])}; "
-                f"meta {formatar_duracao(linha['META_HORAS'])}; "
-                f"déficit {formatar_duracao(linha['DEFICIT_HORAS'])}"
-                + (" (DS estimado)" if linha["DS_ESTIMADO"] else "")
-            ),
-            "SEVERIDADE_MIN": round(float(linha["DEFICIT_HORAS"]) * 60),
-        })
 
-    for _, linha in jornadas[jornadas["ABERTURAS_NO_DIA"].gt(1)].iterrows():
-        ocorrencias.append({
-            "GRUPO": linha["GRUPO"],
-            "EQUIPE": linha["PREFIXO"],
-            "DATA": linha["DATA"],
-            "OCORRENCIA": "Múltiplas aberturas no dia",
-            "DETALHE": f"{int(linha['ABERTURAS_NO_DIA'])} aberturas consolidadas em um turno",
-            "SEVERIDADE_MIN": int(linha["ABERTURAS_NO_DIA"]) * 10,
-        })
+def preparar_relatorio_equipe(dados, intervalos_individuais, equipe, ano, mes):
+    """Reúne todos os turnos e intervalos do mês para uma única equipe."""
+    datas = pd.to_datetime(dados["DATA"], errors="coerce")
+    turnos = dados[
+        dados["PREFIXO"].eq(equipe)
+        & datas.dt.year.eq(ano)
+        & datas.dt.month.eq(mes)
+    ].copy()
+    turnos["DS_ESTIMADO"] = marcar_ds_estimado_gooh(dados).reindex(
+        turnos.index, fill_value=False
+    )
+    turnos["META_HORAS"] = META_HORAS_PADRAO
+    turnos.loc[turnos["GRUPO"].eq("GOOH"), "META_HORAS"] = META_HORAS_GOOH
+    turnos.loc[
+        turnos["GRUPO"].eq("GOOH") & turnos["DS_ESTIMADO"], "META_HORAS"
+    ] = META_HORAS_GOOH_DS
+    turnos["RESULTADO"] = "EM CURSO"
+    encerrados = turnos["FIM_TURNO"].notna() & turnos["DURACAO_HORAS"].notna()
+    turnos.loc[
+        encerrados & turnos["DURACAO_HORAS"].ge(turnos["META_HORAS"]), "RESULTADO"
+    ] = "DENTRO DA META"
+    turnos.loc[
+        encerrados & turnos["DURACAO_HORAS"].lt(turnos["META_HORAS"]), "RESULTADO"
+    ] = "ABAIXO DA META"
+    turnos["REGRA_DIA"] = "Meta padrão"
+    turnos.loc[turnos["DS_ESTIMADO"], "REGRA_DIA"] = "DS estimado"
 
-    if not intervalos_individuais.empty:
-        intervalos = intervalos_individuais.copy()
-        inicio = pd.to_datetime(intervalos["INICIO_INTERVALO"], errors="coerce")
-        motivos = intervalos["MOTIVO_INTERVALO"].fillna("").map(normalizar_nome)
+    intervalos = intervalos_individuais[
+        intervalos_individuais["PREFIXO"].eq(equipe)
+    ].copy() if not intervalos_individuais.empty else pd.DataFrame()
+    if not intervalos.empty:
+        inicio_intervalo = pd.to_datetime(intervalos["INICIO_INTERVALO"], errors="coerce")
         intervalos = intervalos[
-            inicio.dt.year.eq(ano)
-            & inicio.dt.month.eq(mes)
-            & intervalos["GRUPO"].isin(grupos)
-            & motivos.eq("REFEICAO")
+            inicio_intervalo.dt.year.eq(ano) & inicio_intervalo.dt.month.eq(mes)
         ].copy()
-        if equipes:
-            intervalos = intervalos[intervalos["PREFIXO"].isin(equipes)]
-        if not intervalos.empty:
-            intervalos["DATA_REFEICAO"] = pd.to_datetime(
-                intervalos["INICIO_INTERVALO"]
-            ).dt.date
-            refeicoes = (
-                intervalos.groupby(["GRUPO", "PREFIXO", "DATA_REFEICAO"], as_index=False)
-                ["INTERVALO_HORAS"].sum()
-            )
-            for _, linha in refeicoes[refeicoes["INTERVALO_HORAS"].gt(1.25)].iterrows():
-                excesso = float(linha["INTERVALO_HORAS"]) - 1.25
-                ocorrencias.append({
-                    "GRUPO": linha["GRUPO"],
-                    "EQUIPE": linha["PREFIXO"],
-                    "DATA": linha["DATA_REFEICAO"],
-                    "OCORRENCIA": "Refeição acima de 01:15",
-                    "DETALHE": f"Total no dia: {formatar_duracao(linha['INTERVALO_HORAS'])}",
-                    "SEVERIDADE_MIN": round(excesso * 60),
-                })
+        intervalos["DATA_INTERVALO"] = pd.to_datetime(
+            intervalos["INICIO_INTERVALO"], errors="coerce"
+        ).dt.date
+        intervalos["CATEGORIA"] = intervalos["MOTIVO_INTERVALO"].fillna("").map(
+            normalizar_nome
+        )
 
-    if not ocorrencias:
-        return pd.DataFrame(columns=[
-            "GRUPO", "EQUIPE", "DATA", "OCORRENCIA", "DETALHE", "SEVERIDADE_MIN"
-        ])
-    return pd.DataFrame(ocorrencias).sort_values(
-        ["SEVERIDADE_MIN", "DATA"], ascending=[False, True]
-    ).reset_index(drop=True)
-
-
-def gerar_relatorio_mensal_texto(ranking, jornadas, ocorrencias, ano, mes):
-    total = len(jornadas)
-    desvios = int(jornadas["COM_DESVIO"].sum()) if total else 0
-    taxa = 100 * desvios / total if total else 0
-    linhas = [
-        f"RELATÓRIO MENSAL DE TURNOS — {MESES[mes - 1].upper()} DE {ano}",
-        "",
-        f"Jornadas encerradas analisadas: {total}",
-        f"Jornadas abaixo da meta: {desvios} ({taxa:.1f}%)",
-        (
-            "Critério: menos de 08:00 para GOOL/GOOC/GOOK; menos de 09:00 para "
-            "GOOH; no DS estimado da GOOH, menos de 08:00."
-        ),
-        "",
-        "EQUIPES COM MAIOR PERCENTUAL DE DESVIO POR GRUPO",
+    colunas_intervalo = [
+        "NUM_INTERVALOS", "TOTAL_INTERVALOS_HORAS", "REFEICAO_HORAS",
+        "MANUTENCAO_HORAS", "RETORNO_BASE_HORAS",
     ]
-    for grupo in GRUPOS:
-        grupo_ranking = ranking[ranking["GRUPO"].eq(grupo)].head(5)
-        if grupo_ranking.empty:
-            continue
-        linhas.append(f"\n{grupo}")
-        for _, item in grupo_ranking.iterrows():
-            linhas.append(
-                f"- {item['PREFIXO']}: {item['PERCENTUAL_DESVIO']:.1f}% "
-                f"({int(item['JORNADAS_COM_DESVIO'])}/{int(item['JORNADAS_ANALISADAS'])} jornadas)"
+    for coluna in colunas_intervalo:
+        turnos[coluna] = 0.0
+
+    if not intervalos.empty:
+        totais = intervalos.groupby("DATA_INTERVALO").agg(
+            NUM_INTERVALOS=("INTERVALO_ID", "nunique"),
+            TOTAL_INTERVALOS_HORAS=("INTERVALO_HORAS", "sum"),
+        )
+        refeicao = intervalos[intervalos["CATEGORIA"].eq("REFEICAO")].groupby(
+            "DATA_INTERVALO"
+        )["INTERVALO_HORAS"].sum()
+        manutencao = intervalos[
+            intervalos["CATEGORIA"].str.contains("MANUTENCAO", na=False)
+        ].groupby("DATA_INTERVALO")["INTERVALO_HORAS"].sum()
+        retorno = intervalos[
+            intervalos["CATEGORIA"].str.contains("RETORNO.*BASE", regex=True, na=False)
+        ].groupby("DATA_INTERVALO")["INTERVALO_HORAS"].sum()
+        totais["REFEICAO_HORAS"] = refeicao
+        totais["MANUTENCAO_HORAS"] = manutencao
+        totais["RETORNO_BASE_HORAS"] = retorno
+        totais = totais.fillna(0)
+        for indice in turnos.index:
+            data_turno = turnos.at[indice, "DATA"]
+            if data_turno in totais.index:
+                for coluna in colunas_intervalo:
+                    turnos.at[indice, coluna] = float(totais.at[data_turno, coluna])
+
+    turnos["DIFERENCA_SAIDA_HORAS"] = pd.to_numeric(
+        turnos["DIFERENCA_FECHAMENTO_MIN"], errors="coerce"
+    ) / 60
+    turnos["PERCENTUAL_INTERVALO"] = 0.0
+    duracao_valida = turnos["DURACAO_HORAS"].fillna(0).gt(0)
+    turnos.loc[duracao_valida, "PERCENTUAL_INTERVALO"] = (
+        turnos.loc[duracao_valida, "TOTAL_INTERVALOS_HORAS"]
+        / turnos.loc[duracao_valida, "DURACAO_HORAS"]
+    )
+
+    def situacao_almoco(horas):
+        minutos = round(float(horas or 0) * 60)
+        if minutos == 0:
+            return "Sem refeição registrada"
+        if minutos < 59:
+            return "Abaixo de 00:59"
+        if minutos <= 75:
+            return "Dentro de 00:59 a 01:15"
+        return "Acima de 01:15"
+
+    turnos["SITUACAO_ALMOCO"] = turnos["REFEICAO_HORAS"].map(situacao_almoco)
+    return turnos.sort_values("INICIO_TURNO"), intervalos.sort_values(
+        "INICIO_INTERVALO"
+    ) if not intervalos.empty else intervalos
+
+
+@st.cache_data(show_spinner=False)
+def gerar_relatorio_equipe_excel(dados, intervalos_individuais, equipe, ano, mes):
+    """Gera um Excel individual com todos os horários da equipe no mês."""
+    turnos, intervalos = preparar_relatorio_equipe(
+        dados, intervalos_individuais, equipe, ano, mes
+    )
+    livro = Workbook()
+    planilha = livro.active
+    planilha.title = "Turnos do mês"
+
+    azul_escuro = "1F4E78"
+    azul_cabecalho = "2E75B6"
+    azul_claro = "D9EAF7"
+    branco = "FFFFFF"
+    verde = "C6EFCE"
+    vermelho = "FFC7CE"
+    amarelo = "FFF2CC"
+    cinza = "E7E6E6"
+    borda_fina = Side(style="thin", color="B7C9D6")
+
+    planilha.merge_cells("A1:S1")
+    planilha["A1"] = f"Análise de turnos e intervalos — {equipe}"
+    planilha["A1"].fill = PatternFill("solid", fgColor=azul_escuro)
+    planilha["A1"].font = Font(color=branco, bold=True, size=16)
+    planilha["A1"].alignment = Alignment(vertical="center")
+    planilha.row_dimensions[1].height = 30
+    planilha.merge_cells("A2:S2")
+    planilha["A2"] = (
+        f"Período: {MESES[mes - 1]} de {ano}. Jornada = primeira abertura até o "
+        "último fechamento do dia; os intervalos não são descontados da duração."
+    )
+    planilha["A2"].fill = PatternFill("solid", fgColor=azul_claro)
+    planilha["A2"].font = Font(color=azul_escuro, italic=True)
+
+    encerrados = turnos[turnos["FIM_TURNO"].notna()]
+    desvios = int(encerrados["RESULTADO"].eq("ABAIXO DA META").sum())
+    taxa_desvio = desvios / len(encerrados) if len(encerrados) else 0
+    total_intervalos = int(turnos["NUM_INTERVALOS"].sum()) if not turnos.empty else 0
+    horas_intervalo = float(turnos["TOTAL_INTERVALOS_HORAS"].sum()) if not turnos.empty else 0
+    horas_turno = float(turnos["DURACAO_HORAS"].fillna(0).sum()) if not turnos.empty else 0
+    percentual_intervalos = horas_intervalo / horas_turno if horas_turno else 0
+    metricas = [
+        ("Equipe", equipe),
+        ("Turnos", len(turnos)),
+        ("Intervalos", total_intervalos),
+        ("Total intervalos", horas_intervalo / 24),
+        ("Intervalos / turno", percentual_intervalos),
+        ("Jornadas com desvio", taxa_desvio),
+    ]
+    posicoes = [("A4", "B4"), ("D4", "E4"), ("G4", "H4"),
+                ("J4", "K4"), ("M4", "N4"), ("P4", "Q4")]
+    for (rotulo, valor), (celula_rotulo, celula_valor) in zip(metricas, posicoes):
+        planilha[celula_rotulo] = rotulo
+        planilha[celula_valor] = valor
+        planilha[celula_rotulo].fill = PatternFill("solid", fgColor=azul_claro)
+        planilha[celula_rotulo].font = Font(color=azul_escuro, bold=True)
+        planilha[celula_valor].font = Font(bold=True)
+        for celula in (planilha[celula_rotulo], planilha[celula_valor]):
+            celula.border = Border(
+                left=borda_fina, right=borda_fina, top=borda_fina, bottom=borda_fina
             )
-    linhas.extend(["", "PRINCIPAIS OCORRÊNCIAS"])
-    if ocorrencias.empty:
-        linhas.append("- Nenhuma ocorrência encontrada pelos critérios atuais.")
-    else:
-        for _, item in ocorrencias.head(20).iterrows():
-            data_item = pd.to_datetime(item["DATA"]).strftime("%d/%m/%Y")
-            linhas.append(
-                f"- {data_item} | {item['EQUIPE']} | {item['OCORRENCIA']} | {item['DETALHE']}"
+            celula.alignment = Alignment(vertical="center")
+    planilha["K4"].number_format = "[h]:mm"
+    planilha["N4"].number_format = "0.0%"
+    planilha["Q4"].number_format = "0.0%"
+
+    cabecalhos = [
+        "Equipe", "Data", "Abertura", "Saída prevista", "Fechamento",
+        "Duração do turno", "Diferença da saída", "Nº aberturas", "Nº intervalos",
+        "Total de intervalos", "% do turno", "Refeição", "Manutenção",
+        "Retorno à base", "Situação do almoço", "Meta do dia", "Regra do dia",
+        "Resultado", "Observação",
+    ]
+    linha_cabecalho = 7
+    for coluna, cabecalho in enumerate(cabecalhos, 1):
+        celula = planilha.cell(linha_cabecalho, coluna, cabecalho)
+        celula.fill = PatternFill("solid", fgColor=azul_cabecalho)
+        celula.font = Font(color=branco, bold=True)
+        celula.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        celula.border = Border(
+            left=borda_fina, right=borda_fina, top=borda_fina, bottom=borda_fina
+        )
+    planilha.row_dimensions[linha_cabecalho].height = 34
+
+    for numero_linha, (_, item) in enumerate(turnos.iterrows(), linha_cabecalho + 1):
+        valores = [
+            item["PREFIXO"], item["DATA"], item["INICIO_TURNO"], item["SAIDA_PREVISTA"],
+            item["FIM_TURNO"], item["DURACAO_HORAS"] / 24 if pd.notna(item["DURACAO_HORAS"]) else None,
+            formatar_duracao(item["DIFERENCA_SAIDA_HORAS"])
+            if pd.notna(item["DIFERENCA_SAIDA_HORAS"]) else "",
+            int(item["ABERTURAS_NO_DIA"]), int(item["NUM_INTERVALOS"]),
+            item["TOTAL_INTERVALOS_HORAS"] / 24, item["PERCENTUAL_INTERVALO"],
+            item["REFEICAO_HORAS"] / 24, item["MANUTENCAO_HORAS"] / 24,
+            item["RETORNO_BASE_HORAS"] / 24, item["SITUACAO_ALMOCO"],
+            item["META_HORAS"] / 24, item["REGRA_DIA"], item["RESULTADO"],
+            item.get("OBSERVACAO", ""),
+        ]
+        for coluna, valor in enumerate(valores, 1):
+            if pd.isna(valor):
+                valor = None
+            celula = planilha.cell(numero_linha, coluna, valor)
+            celula.border = Border(
+                left=borda_fina, right=borda_fina, top=borda_fina, bottom=borda_fina
             )
-    linhas.extend([
-        "",
-        "Observação: o DS é estimado porque a fonte atual não possui uma coluna explícita de escala.",
-    ])
-    return "\n".join(linhas)
+            celula.alignment = Alignment(vertical="center", wrap_text=True)
+        for coluna_data in (2,):
+            planilha.cell(numero_linha, coluna_data).number_format = "dd/mm/yyyy"
+        for coluna_data_hora in (3, 4, 5):
+            planilha.cell(numero_linha, coluna_data_hora).number_format = "dd/mm/yyyy hh:mm"
+        for coluna_duracao in (6, 10, 12, 13, 14, 16):
+            planilha.cell(numero_linha, coluna_duracao).number_format = "[h]:mm;-[h]:mm"
+        planilha.cell(numero_linha, 11).number_format = "0.0%"
+        resultado = planilha.cell(numero_linha, 18)
+        if item["RESULTADO"] == "ABAIXO DA META":
+            resultado.fill = PatternFill("solid", fgColor=vermelho)
+        elif item["RESULTADO"] == "DENTRO DA META":
+            resultado.fill = PatternFill("solid", fgColor=verde)
+        else:
+            resultado.fill = PatternFill("solid", fgColor=amarelo)
+
+    ultima_linha = max(linha_cabecalho + 1, linha_cabecalho + len(turnos))
+    if not turnos.empty:
+        tabela = Table(displayName="TabelaTurnos", ref=f"A7:S{ultima_linha}")
+        tabela.tableStyleInfo = TableStyleInfo(
+            name="TableStyleMedium2", showFirstColumn=False, showLastColumn=False,
+            showRowStripes=True, showColumnStripes=False,
+        )
+        planilha.add_table(tabela)
+    planilha.freeze_panes = "A8"
+    planilha.auto_filter.ref = f"A7:S{ultima_linha}"
+    larguras = [16, 12, 19, 19, 19, 18, 18, 14, 14, 19, 13, 13, 14, 16, 25, 14, 16, 19, 35]
+    for indice, largura in enumerate(larguras, 1):
+        planilha.column_dimensions[get_column_letter(indice)].width = largura
+
+    planilha_intervalos = livro.create_sheet("Intervalos individuais")
+    planilha_intervalos.merge_cells("A1:F1")
+    planilha_intervalos["A1"] = f"Intervalos individuais — {equipe}"
+    planilha_intervalos["A1"].fill = PatternFill("solid", fgColor=azul_escuro)
+    planilha_intervalos["A1"].font = Font(color=branco, bold=True, size=15)
+    cabecalhos_intervalos = ["Data", "Início", "Fim", "Duração", "Motivo", "ID do intervalo"]
+    for coluna, cabecalho in enumerate(cabecalhos_intervalos, 1):
+        celula = planilha_intervalos.cell(3, coluna, cabecalho)
+        celula.fill = PatternFill("solid", fgColor=azul_cabecalho)
+        celula.font = Font(color=branco, bold=True)
+        celula.alignment = Alignment(horizontal="center")
+    if not intervalos.empty:
+        for numero_linha, (_, item) in enumerate(intervalos.iterrows(), 4):
+            valores = [
+                item["DATA_INTERVALO"], item["INICIO_INTERVALO"], item["FIM_INTERVALO"],
+                item["INTERVALO_HORAS"] / 24, item["MOTIVO_INTERVALO"], item["INTERVALO_ID"],
+            ]
+            for coluna, valor in enumerate(valores, 1):
+                planilha_intervalos.cell(numero_linha, coluna, None if pd.isna(valor) else valor)
+            planilha_intervalos.cell(numero_linha, 1).number_format = "dd/mm/yyyy"
+            planilha_intervalos.cell(numero_linha, 2).number_format = "dd/mm/yyyy hh:mm"
+            planilha_intervalos.cell(numero_linha, 3).number_format = "dd/mm/yyyy hh:mm"
+            planilha_intervalos.cell(numero_linha, 4).number_format = "[h]:mm"
+        ultima_linha_intervalos = 3 + len(intervalos)
+        tabela_intervalos = Table(
+            displayName="TabelaIntervalos", ref=f"A3:F{ultima_linha_intervalos}"
+        )
+        tabela_intervalos.tableStyleInfo = TableStyleInfo(
+            name="TableStyleMedium2", showFirstColumn=False, showLastColumn=False,
+            showRowStripes=True, showColumnStripes=False,
+        )
+        planilha_intervalos.add_table(tabela_intervalos)
+    planilha_intervalos.freeze_panes = "A4"
+    for indice, largura in enumerate([13, 21, 21, 14, 30, 18], 1):
+        planilha_intervalos.column_dimensions[get_column_letter(indice)].width = largura
+
+    saida = BytesIO()
+    livro.save(saida)
+    return saida.getvalue()
 
 
 st.title("Acompanhamento de Turnos GO")
@@ -851,9 +1021,6 @@ else:
 ranking_mensal, jornadas_mensais = calcular_analise_mensal(
     dados, ano, mes, grupos, equipes
 )
-ocorrencias_mensais = montar_ocorrencias_mensais(
-    jornadas_mensais, intervalos_individuais, ano, mes, grupos, equipes
-)
 
 metricas = st.columns(4)
 metricas[0].metric("Turnos consolidados", filtrado["HIST_TURMA_PLANTAO_ID"].nunique())
@@ -869,13 +1036,13 @@ colunas = [
     "MOTIVOS_INTERVALO", "PARTICIPA_ESCALA", "OBSERVACAO",
 ]
 (
-    aba_analise, aba_ocorrencias, aba_turnos, aba_mapa, aba_horas,
-    aba_intervalos, aba_refeicao, aba_ranking, aba_resumo,
+    aba_analise, aba_turnos, aba_mapa, aba_horas, aba_intervalos,
+    aba_refeicao, aba_ranking, aba_resumo,
 ) = st.tabs(
     [
-        "Análise mensal", "Ocorrências", "Turnos", "Mapa mensal",
-        "Horas trabalhadas", "Intervalos", "Intervalos de refeição",
-        "Ranking de intervalos", "Resumo diário",
+        "Análise mensal", "Turnos", "Mapa mensal", "Horas trabalhadas",
+        "Intervalos", "Intervalos de refeição", "Ranking de intervalos",
+        "Resumo diário",
     ]
 )
 with aba_analise:
@@ -885,6 +1052,23 @@ with aba_analise:
         "encerradas analisadas. Metas: 08:00 para GOOL, GOOC e GOOK; 09:00 para "
         "GOOH; 08:00 no DS estimado da GOOH."
     )
+    with st.expander("O que significa jornada e como o desvio é calculado?"):
+        st.markdown(
+            """
+            **Jornada** é o tempo entre a primeira abertura e o último fechamento da
+            equipe no mesmo dia. Quando a equipe reabre o turno, todas as aberturas são
+            consolidadas em uma única jornada. Os intervalos aparecem separadamente e
+            **não são descontados** da duração da jornada.
+
+            Uma jornada encerrada é marcada com desvio quando dura menos de **08:00**
+            para GOOL, GOOC e GOOK, ou menos de **09:00** para GOOH. No possível dia de
+            DS da GOOH, a meta considerada é **08:00**. Turnos em andamento, dias futuros
+            e dias sem abertura não entram no percentual desta tela.
+
+            Exemplo: 3 jornadas abaixo da meta em 4 jornadas encerradas resultam em
+            **75% de desvio**.
+            """
+        )
     if jornadas_mensais.empty:
         st.info("Ainda não há jornadas encerradas para analisar neste período.")
     else:
@@ -910,8 +1094,11 @@ with aba_analise:
             with st.container(border=True):
                 st.markdown(f"### {grupo}")
                 for _, item in ranking_grupo.head(5).iterrows():
-                    coluna_equipe, coluna_barra, coluna_percentual = st.columns(
-                        [2.2, 6, 1.2], vertical_alignment="center"
+                    (
+                        coluna_equipe, coluna_barra, coluna_percentual,
+                        coluna_relatorio,
+                    ) = st.columns(
+                        [2.1, 5.2, 1.1, 1.8], vertical_alignment="center"
                     )
                     coluna_equipe.markdown(f"**{item['PREFIXO']}**")
                     percentual = float(item["PERCENTUAL_DESVIO"])
@@ -923,6 +1110,22 @@ with aba_analise:
                         ),
                     )
                     coluna_percentual.markdown(f"**{percentual:.1f}%**")
+                    arquivo_equipe = gerar_relatorio_equipe_excel(
+                        dados, intervalos_individuais, item["PREFIXO"], ano, mes
+                    )
+                    coluna_relatorio.download_button(
+                        "Baixar relatório",
+                        arquivo_equipe,
+                        file_name=(
+                            f"relatorio_{item['PREFIXO']}_{ano}_{mes:02}.xlsx"
+                        ),
+                        mime=(
+                            "application/vnd.openxmlformats-officedocument."
+                            "spreadsheetml.sheet"
+                        ),
+                        key=f"relatorio_{item['PREFIXO']}_{ano}_{mes:02}",
+                        use_container_width=True,
+                    )
 
                 with st.expander(f"Ver ranking completo de {grupo}"):
                     exibir = ranking_grupo.copy()
@@ -954,62 +1157,10 @@ with aba_analise:
             "08:30 e 10:30, escolhendo a mais próxima das 09:00. Quando a fonte "
             "passar a informar o DS, esta estimativa poderá ser substituída pelo dado oficial."
         )
-        relatorio_texto = gerar_relatorio_mensal_texto(
-            ranking_mensal, jornadas_mensais, ocorrencias_mensais, ano, mes
-        )
-        botoes_relatorio = st.columns(2)
-        botoes_relatorio[0].download_button(
+        st.download_button(
             "Baixar ranking mensal em CSV",
             ranking_mensal.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
             file_name=f"ranking_desvios_{ano}_{mes:02}.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-        botoes_relatorio[1].download_button(
-            "Baixar relatório mensal em TXT",
-            relatorio_texto.encode("utf-8-sig"),
-            file_name=f"relatorio_turnos_{ano}_{mes:02}.txt",
-            mime="text/plain",
-            use_container_width=True,
-        )
-with aba_ocorrencias:
-    st.subheader(f"Principais ocorrências — {MESES[mes - 1]} de {ano}")
-    st.caption(
-        "Destaques calculados a partir de jornadas abaixo da meta, múltiplas "
-        "aberturas no mesmo dia e refeições acima de 01:15."
-    )
-    if ocorrencias_mensais.empty:
-        st.success("Nenhuma ocorrência foi encontrada pelos critérios atuais.")
-    else:
-        contagens = (
-            ocorrencias_mensais.groupby("OCORRENCIA").size().sort_values(ascending=False)
-        )
-        colunas_ocorrencias = st.columns(len(contagens))
-        for coluna, (nome, quantidade) in zip(colunas_ocorrencias, contagens.items()):
-            coluna.metric(nome, int(quantidade))
-
-        tabela_ocorrencias = ocorrencias_mensais.copy()
-        st.dataframe(
-            tabela_ocorrencias[
-                ["DATA", "GRUPO", "EQUIPE", "OCORRENCIA", "DETALHE"]
-            ],
-            hide_index=True,
-            use_container_width=True,
-            height=min(720, 70 + len(tabela_ocorrencias) * 35),
-            column_config={
-                "DATA": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-                "GRUPO": "Grupo",
-                "EQUIPE": "Equipe",
-                "OCORRENCIA": "Ocorrência",
-                "DETALHE": "Detalhe",
-            },
-        )
-        st.download_button(
-            "Baixar ocorrências em CSV",
-            tabela_ocorrencias.to_csv(index=False, sep=";", decimal=",").encode(
-                "utf-8-sig"
-            ),
-            file_name=f"ocorrencias_turnos_{ano}_{mes:02}.csv",
             mime="text/csv",
         )
 with aba_turnos:
